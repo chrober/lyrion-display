@@ -134,6 +134,34 @@ constitute F-Droid acceptance. Java 17 availability may change as Debian
 Bookworm ages. Prior to submission, repeat in the then-current official
 environment and secure a human metadata/licensing review.
 
+## Official-format `sudo` recipe verified in Trixie CI (21 Nov 2026)
+
+[QA-only workflow run 44916494259](https://github.com/chrober/lyrion-display/actions/runs/44916494259)
+executed the **actual metadata `sudo` commands** in a disposable
+F-Droid `buildserver-trixie` container. The commands installed Debian
+Bookworm **OpenJDK 17.0.19** and selected it for the exact tagged-source
+build using the `prebuild` Gradle JDK property. **No Java runtime was
+mounted from GitHub Actions.**
+
+- Source: v0.3.0 (`fb4cb6359e1931519f586d6602c25e9b95e51e03`).
+- `fdroid readmeta`, `fdroid lint`, F-Droid scanner and
+  `fdroid build --test --force`: **passed (1 build succeeded)**.
+- APK SHA-256: `4de2f0deaa2ad9edc7cff597ba60af599122a5183bc348b3107a4c6c902e5e88`
+  — identical to the independent Temurin 17 and plain Ubuntu builds.
+- Published GitHub APK checksum and established signing certificate:
+  **verified**.
+- Common APK payload entries: **zero differences**; only normal
+  signature entries present solely in the published signed APK.
+- `apksigcopier compare --unsigned`: **passed**.
+
+This is stronger evidence than merely building in a container with a
+manually injected JDK: the same **supported F-Droid build recipe** now
+produces the matching unsigned APK in the current Trixie CI image.
+The test manually performs the recipe's `sudo` stage as root before
+unprivileged compilation because local `--test` does not run privileged
+steps automatically. It is not a production `--on-server` build or
+an F-Droid team review; those remain approval gates.
+
 ## Build expectations
 
 - `gradle/wrapper/gradle-wrapper.properties` pins Gradle **9.9.1** for F-Droid's
