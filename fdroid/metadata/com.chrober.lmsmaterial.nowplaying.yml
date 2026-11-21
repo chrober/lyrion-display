@@ -1,5 +1,6 @@
-# DRAFT QA ONLY — do NOT submit to official fdroiddata.
-# Exact source for the published GitHub v0.3.0 release, awaiting independent verification.
+# DISABLED DRAFT — no F-Droid submission or publication.
+# Exact published v0.3.0 source; validated only in independent CI, not in
+# the official production fdroiddata/buildserver pipeline.
 Categories:
   - Multimedia
 License: MIT
@@ -15,8 +16,27 @@ Builds:
     commit: fb4cb6359e1931519f586d6602c25e9b95e51e03
     disable: 'QA-only source reproducibility verification; official F-Droid buildserver and metadata approval outstanding.'
     subdir: app
+    # F-Droid's supported buildserver mechanism: install Debian Bookworm JDK 17
+    # in the disposable Trixie VM. Java 21 changes classes.dex and breaks
+    # reproducible upstream signing for the existing v0.3.0 release.
+    sudo:
+      - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
+      - apt-get update
+      - apt-get install -y -t bookworm openjdk-17-jdk-headless
+      - update-java-alternatives -s java-1.17.0-openjdk-amd64
+    # Explicitly select Java 17 for the Gradle daemon even if its outer
+    # launcher inherits an older/default JAVA_HOME.
+    prebuild:
+      - echo "org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64" >> ../gradle.properties
     gradle:
       - 'yes'
+
+# Prepared for developer-signed reproducible APK inclusion ONLY after
+# independent F-Droid production verification and explicit manual approval.
+# These fields do not publish anything while the only Build is disabled.
+Binaries: https://github.com/chrober/lyrion-display/releases/download/v%v/lyrion-display-v%v.apk
+AllowedAPKSigningKeys:
+  - af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb
 
 # Never automatically submit new versions to the official F-Droid catalog.
 AutoUpdateMode: None
