@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       buildserver_image:
-        description: 'Run an isolated exact-release build using the F-Droid buildserver CI image (no publishing)'
+        description: 'Run exact-release Trixie build using the official recipe Java 17 sudo steps (no publishing)'
         type: boolean
         default: false
 
@@ -97,6 +97,17 @@ jobs:
               out.write(f"version_code={b['versionCode']}\n")
               out.write(f"version_name={b['versionName']}\n")
           PY
+      - name: Map QA Java 17 to F-Droid's expected Gradle home
+        shell: bash
+        run: |
+          # Local non-VM QA does not execute metadata sudo commands; use the
+          # already-installed GitHub Actions JDK 17 at the recipe's fixed path.
+          test -x "$JAVA_HOME/bin/java"
+          if ! test -x /usr/lib/jvm/java-17-openjdk-amd64/bin/java; then
+            sudo mkdir -p /usr/lib/jvm
+            sudo ln -s "$JAVA_HOME" /usr/lib/jvm/java-17-openjdk-amd64
+          fi
+          /usr/lib/jvm/java-17-openjdk-amd64/bin/java -version
       - name: Build pinned release using fdroidserver scanner
         env:
           SOURCE_SHA: ${{ steps.pinned.outputs.source_sha }}
@@ -144,9 +155,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+
   fdroid-buildserver-image:
-    name: F-Droid buildserver image with Java 17 (QA only)
-    # Run on F-Droid-related PRs, or explicitly on demand. Never submit or publish.
+    name: F-Droid Trixie recipe-driven Java 17 reproducibility (QA only)
+    # PR/build QA only; no privileged credentials, GitLab submissions or publication.
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.buildserver_image)
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -158,10 +170,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '17'
       - name: Install recipe and signature verification dependencies
         run: python3 -m pip install --disable-pip-version-check PyYAML 'apksigcopier==1.1.1'
       - name: Verify disabled recipe and extract immutable source version
@@ -180,7 +188,7 @@ jobs:
               out.write(f"version_code={b['versionCode']}\n")
               out.write(f"version_name={b['versionName']}\n")
           PY
-      - name: Prepare pinned release source in a normal Git clone
+      - name: Prepare exact-release checkout and F-Droid source tools
         env:
           SOURCE_SHA: ${{ steps.pinned.outputs.source_sha }}
         shell: bash
@@ -189,62 +197,63 @@ jobs:
           git clone --quiet --no-checkout https://github.com/chrober/lyrion-display.git fdroid/build/com.chrober.lmsmaterial.nowplaying
           git -C fdroid/build/com.chrober.lmsmaterial.nowplaying checkout --quiet "$SOURCE_SHA"
           test "$(git -C fdroid/build/com.chrober.lmsmaterial.nowplaying rev-parse HEAD)" = "$SOURCE_SHA"
-          # The image uses its unprivileged vagrant user, not the host runner UID.
-          chmod -R a+rwX fdroid
-          # F-Droid's documented CI image needs an fdroidserver source checkout
-          # mounted in /home/vagrant/fdroidserver to expose the 'fdroid' CLI.
           git clone --quiet --depth=1 https://gitlab.com/fdroid/fdroidserver.git fdroidserver
           git -C fdroidserver rev-parse HEAD | tee fdroidserver-ci-tool-revision.txt
           chmod -R a+rX fdroidserver
-      - name: Prepare Java 17 with a self-contained CA trust store
+      - name: Generate local-only test scripts from validated official metadata
         shell: bash
         run: |
-          # GitHub's Temurin lib/security/cacerts can be a symlink pointing
-          # outside JAVA_HOME. Resolve it before bind-mounting the JDK alone.
-          bundle="$RUNNER_TEMP/fdroid-jdk-17"
-          mkdir -p "$bundle"
-          cp -a "$JAVA_HOME/." "$bundle/"
-          if test -L "$bundle/lib/security/cacerts"; then
-            rm "$bundle/lib/security/cacerts"
-            cp -L "$JAVA_HOME/lib/security/cacerts" "$bundle/lib/security/cacerts"
-          fi
-          test -s "$bundle/lib/security/cacerts"
-          "$bundle/bin/java" -version
-          echo "FDROID_JAVA17_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Source-build inside F-Droid's buildserver CI image
+          # Reuse the exact recipe's sudo steps. The checked validator only
+          # permits the expected Bookworm JDK17 installation operations.
+          python3 tools/check_fdroid_recipe.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          recipe = yaml.safe_load(Path("fdroid/metadata/com.chrober.lmsmaterial.nowplaying.yml").read_text(encoding="utf-8"))
+          b = recipe["Builds"][0]
+          assert b["disable"]
+          setup = "#!/bin/bash\nset -euo pipefail\n" + "\n".join(b["sudo"]) + "\n"
+          Path("fdroid/qa-sudo-setup.sh").write_text(setup, encoding="utf-8")
+          PY
+          cat > fdroid/qa-build-as-vagrant.sh <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          . /etc/profile.d/bsenv.sh
+          export PATH="$fdroidserver:$PATH" PYTHONPATH="$fdroidserver"
+          git config --global --add safe.directory /home/vagrant/fdroidserver
+          git config --global --add safe.directory /build/build/com.chrober.lmsmaterial.nowplaying
+          echo "JDK selected by official recipe sudo operations:"
+          java -version
+          test -x /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+          /usr/lib/jvm/java-17-openjdk-amd64/bin/java -version
+          fdroid readmeta
+          fdroid lint com.chrober.lmsmaterial.nowplaying
+          # --force is confined to QA because the review recipe is disabled.
+          fdroid build --test --force --verbose com.chrober.lmsmaterial.nowplaying 2>&1 | tee exact-release-buildserver.log
+          test -s "tmp/com.chrober.lmsmaterial.nowplaying_$VERSION_CODE.apk"
+          if grep -Eq '[1-9][0-9]* build(s)? failed' exact-release-buildserver.log; then exit 1; fi
+          SH
+          chmod -R a+rwX fdroid
+      - name: Install Debian Bookworm Java 17 via F-Droid sudo recipe and rebuild
         env:
           VERSION_CODE: ${{ steps.pinned.outputs.version_code }}
         shell: bash
         run: |
-          docker run --rm --user vagrant --entrypoint /bin/bash \
+          # Root setup mirrors the official buildserver's per-build 'sudo:'
+          # phase; compilation then runs unprivileged as the vagrant user.
+          # The F-Droid local test mode does NOT execute sudo by itself.
+          docker run --rm --user root --entrypoint /bin/bash \
             -v "$GITHUB_WORKSPACE/fdroid:/build" -w /build \
             -v "$GITHUB_WORKSPACE/fdroidserver:/home/vagrant/fdroidserver:ro" \
-            -v "$FDROID_JAVA17_BUNDLE:/opt/host-jdk-17:ro" \
-            -e HOME=/home/vagrant \
             -e VERSION_CODE="$VERSION_CODE" \
             registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie \
             -e -u -o pipefail -c '
-              . /etc/profile.d/bsenv.sh
-              export PATH="$fdroidserver:$PATH" PYTHONPATH="$fdroidserver"
-              # The host-mounted Git repositories have a different owner UID.
-              git config --global --add safe.directory /home/vagrant/fdroidserver
-              git config --global --add safe.directory /build/build/com.chrober.lmsmaterial.nowplaying
-              # The current Trixie image provides Java 21 only; the published
-              # release was compiled with Java 17. Inject Java 17 in read-only
-              # mode for a controlled reproducibility test; this does NOT prove
-              # the production F-Droid image can supply Java 17 on its own.
-              export JAVA_HOME=/opt/host-jdk-17
-              export PATH="$JAVA_HOME/bin:$PATH"
-              test -x "$JAVA_HOME/bin/java"
-              test -s "$JAVA_HOME/lib/security/cacerts"
-              java -version
-              fdroid readmeta
-              fdroid lint com.chrober.lmsmaterial.nowplaying
-              fdroid build --test --force --verbose com.chrober.lmsmaterial.nowplaying 2>&1 | tee exact-release-buildserver.log
-              test -s "tmp/com.chrober.lmsmaterial.nowplaying_$VERSION_CODE.apk"
-              if grep -Eq "[1-9][0-9]* build(s)? failed" exact-release-buildserver.log; then exit 1; fi
+              bash /build/qa-sudo-setup.sh 2>&1 | tee /build/fdroid-sudo-setup.log
+              test -x /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+              runuser -u vagrant -- env HOME=/home/vagrant VERSION_CODE="$VERSION_CODE" \
+                /bin/bash /build/qa-build-as-vagrant.sh
             '
-      - name: Validate buildserver-image APK against existing signed release
+      - name: Compare unsigned recipe build against existing developer-signed release
         env:
           VERSION_NAME: ${{ steps.pinned.outputs.version_name }}
           VERSION_CODE: ${{ steps.pinned.outputs.version_code }}
@@ -263,13 +272,11 @@ jobs:
           export PATH="$ANDROID_HOME/build-tools/34.0.0:$PATH"
           unsigned="fdroid/tmp/com.chrober.lmsmaterial.nowplaying_$VERSION_CODE.apk"
           sha256sum "$unsigned" | tee unsigned-apk-sha256.txt
-          # Keep a diagnostic record even if the full signature comparison fails.
           python3 - "$signed" "$unsigned" <<'PY' | tee apk-entry-comparison.txt
           import hashlib, sys, zipfile
           def digest(data): return hashlib.sha256(data).hexdigest()
           with zipfile.ZipFile(sys.argv[1]) as signed, zipfile.ZipFile(sys.argv[2]) as rebuilt:
-              original = set(signed.namelist())
-              candidate = set(rebuilt.namelist())
+              original, candidate = set(signed.namelist()), set(rebuilt.namelist())
               print("Only in signed APK:", sorted(original - candidate))
               print("Only in rebuilt APK:", sorted(candidate - original))
               changed = [name for name in sorted(original & candidate)
@@ -277,17 +284,15 @@ jobs:
               print("Entries with differing uncompressed content:", len(changed))
               for name in changed:
                   print(name, "signed="+digest(signed.read(name)), "rebuilt="+digest(rebuilt.read(name)))
-                  if name.endswith("version-control-info.textproto"):
-                      print("  signed metadata:", signed.read(name).decode("utf-8", "replace")[:1000])
-                      print("  rebuilt metadata:", rebuilt.read(name).decode("utf-8", "replace")[:1000])
           PY
           apksigcopier compare --unsigned "$signed" "$unsigned"
-      - name: Upload QA logs and checksums only (never APKs)
+      - name: Upload QA evidence only (no APKs or publication)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: fdroid-buildserver-image-evidence
+          name: fdroid-official-recipe-qa-evidence
           path: |
+            fdroid/fdroid-sudo-setup.log
             fdroid/exact-release-buildserver.log
             fdroidserver-ci-tool-revision.txt
             signed-release-cert.txt

@@ -17,14 +17,18 @@ documented below. It is **not** the actual v0.2.0 release.
 Before official F-Droid inclusion:
 1. **Completed locally:** exact v0.3.0 source build, published APK SHA-256,
    certificate and `apksigcopier compare --unsigned` passed (see evidence below).
-2. Confirm compatibility with F-Droid's **official production buildserver** environment,
-   in particular a supported way to run the Android build with Java 17. Our
-   GitHub Ubuntu and F-Droid Trixie CI-image runs passed under Java 17, but
-   these tests do not constitute an official F-Droid build.
-3. Complete the storefront screenshots, attribution and policy review.
-4. Only after verification, remove `disable:` and add the proper
-   upstream-signed APK metadata; submit through an explicitly approved,
-   **manual GitLab merge request**, not automatically when GitHub tags change.
+2. Validate the **official recipe's** Java 17 `sudo`/Gradle selection against
+   a clean F-Droid Trixie buildserver CI image. The workflow installs Bookworm
+   OpenJDK 17 *from the exact disabled recipe*, rather than injecting Temurin
+   from GitHub Actions. A passing CI image test is not official F-Droid
+   production acceptance.
+3. Complete genuine storefront screenshots, attribution, policy/security review
+   and a device compatibility checklist.
+4. **Already prepared but inactive:** the developer-signed `Binaries` URL and
+   `AllowedAPKSigningKeys` fingerprint. These fields and the disabled build do
+   not publish anything. After F-Droid approval, separately and explicitly
+   authorize a manual `fdroiddata` merge request; never automatically enable
+   the build or publish from a tag push.
 
 ## Published v0.3.0 — local independent reproducibility PASSED (21 Nov 2026)
 
@@ -82,6 +86,81 @@ JDK and Android toolchain will be used, and demonstrate that the **actual
 supported F-Droid build recipe** can select Java 17 and reproduce this APK.
 If the production environment cannot provide Java 17, further recipe/toolchain
 work is needed. Never silently switch signing keys to bypass reproducibility.
+
+## Production-compatible Java 17 build metadata (disabled draft)
+
+F-Droid's [Build Metadata Reference](https://f-droid.org/docs/Build_Metadata_Reference/)
+supports `Builds[].sudo` in a **disposable buildserver VM**. Its
+[reproducible-build guide](https://f-droid.org/docs/Reproducible_Builds/)
+lists Java 17 from Debian Bookworm as supported alongside Java 21 from
+Trixie. This is a recognized production technique and not an invented
+metadata key; official `fdroiddata` recipes already use it.
+
+The single disabled v0.3.0 build now specifies:
+
+```yaml
+    sudo:
+      - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
+      - apt-get update
+      - apt-get install -y -t bookworm openjdk-17-jdk-headless
+      - update-java-alternatives -s java-1.17.0-openjdk-amd64
+    prebuild:
+      - echo "org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64" >> ../gradle.properties
+```
+
+The `prebuild` property selects the actual Gradle daemon JDK, independent
+of the parent shell's `JAVA_HOME`. It modifies only the temporary source
+checkout, **not** the v0.3.0 tag or GitHub release.
+
+`sudo` runs automatically only in F-Droid **on-server** builds; ordinary
+`fdroid build --test --force` on a local runner does *not* install packages.
+Our dedicated PR QA workflow compensates by reading the validated `sudo`
+commands from the draft metadata and executing them as root inside a
+throwaway F-Droid Trixie CI container, followed by the exact source build
+as the unprivileged `vagrant` user. It verifies the signed APK SHA-256,
+developer certificate and `apksigcopier compare --unsigned`.
+
+The application-wide `Binaries` and `AllowedAPKSigningKeys` fields are
+now populated for the **existing** v0.3.0 GitHub release, but its only
+`Builds` entry remains disabled; no upload/submission/update occurs.
+The signing certificate is verified against the real published release.
+`tools/check_fdroid_recipe.py` fails closed if the draft is activated,
+privileged commands change, the JDK override disappears, the pinned tag
+changes or signing metadata drifts.
+
+**Important:** this test approximates the official buildserver's supported
+sudo recipe, but does not itself execute an F-Droid production VM job or
+constitute F-Droid acceptance. Java 17 availability may change as Debian
+Bookworm ages. Prior to submission, repeat in the then-current official
+environment and secure a human metadata/licensing review.
+
+## Official-format `sudo` recipe verified in Trixie CI (21 Nov 2026)
+
+[QA-only workflow run 44916494259](https://github.com/chrober/lyrion-display/actions/runs/44916494259)
+executed the **actual metadata `sudo` commands** in a disposable
+F-Droid `buildserver-trixie` container. The commands installed Debian
+Bookworm **OpenJDK 17.0.19** and selected it for the exact tagged-source
+build using the `prebuild` Gradle JDK property. **No Java runtime was
+mounted from GitHub Actions.**
+
+- Source: v0.3.0 (`fb4cb6359e1931519f586d6602c25e9b95e51e03`).
+- `fdroid readmeta`, `fdroid lint`, F-Droid scanner and
+  `fdroid build --test --force`: **passed (1 build succeeded)**.
+- APK SHA-256: `4de2f0deaa2ad9edc7cff597ba60af599122a5183bc348b3107a4c6c902e5e88`
+  — identical to the independent Temurin 17 and plain Ubuntu builds.
+- Published GitHub APK checksum and established signing certificate:
+  **verified**.
+- Common APK payload entries: **zero differences**; only normal
+  signature entries present solely in the published signed APK.
+- `apksigcopier compare --unsigned`: **passed**.
+
+This is stronger evidence than merely building in a container with a
+manually injected JDK: the same **supported F-Droid build recipe** now
+produces the matching unsigned APK in the current Trixie CI image.
+The test manually performs the recipe's `sudo` stage as root before
+unprivileged compilation because local `--test` does not run privileged
+steps automatically. It is not a production `--on-server` build or
+an F-Droid team review; those remain approval gates.
 
 ## Build expectations
 
@@ -191,9 +270,9 @@ The permanently **disabled** recipe pins the exact existing GitHub v0.3.0 releas
 
 The workflow [F-Droid metadata and source-build preflight](../.github/workflows/fdroid-preflight.yml) provides these paths:
 
-1. **Automatic on F-Droid-related PRs:** metadata parser/linter and an isolated test inside the F-Droid `registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie` CI container with an injected Java 17 runtime. It reads source SHA, version and versionCode from the disabled recipe and compares the resulting unsigned APK against the existing, checksummed, developer-signed GitHub release using `apksigcopier`.
+1. **Automatic on F-Droid-related PRs:** metadata parser/linter and an isolated test inside the F-Droid `registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie` CI container; the container installs Bookworm JDK 17 through the **actual validated recipe `sudo` commands**, then applies the recipe `prebuild` and compiles unprivileged. It reads source SHA, version and versionCode from the disabled recipe and compares the resulting unsigned APK against the existing, checksummed, developer-signed GitHub release using `apksigcopier`.
 2. **Manual `source_build` input:** source scanner and `fdroid build --test --force` with pinned `fdroidserver 2.4.5` on GitHub-hosted Ubuntu, reproducing the previously successful test without hardcoded old QA commits.
-3. **Manual `buildserver_image` input:** explicitly rerun the isolated F-Droid CI container test without a PR.
+3. **Manual `buildserver_image` input:** explicitly rerun the isolated official-recipe-style F-Droid CI container test without a PR.
 
 GitHub Actions → **F-Droid metadata and source-build preflight (no publishing)** → **Run workflow**. Select `main` and enable only the intended test option(s). The local Ubuntu and CI-container jobs are independent: either can be selected without the other. A test success must be confirmed in its linked workflow run rather than inferred from the existence of the job.
 
