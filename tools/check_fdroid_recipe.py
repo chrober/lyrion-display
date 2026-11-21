@@ -16,6 +16,22 @@ import yaml
 
 APP_ID = "com.chrober.lmsmaterial.nowplaying"
 EXPECTED_SOURCE = "https://github.com/chrober/lyrion-display"
+# Allowed during QA only: the same supported 'sudo' operations used in real
+# F-Droid fdroiddata metadata on disposable Trixie buildserver VMs.
+JAVA17_SUDO = [
+    'echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list',
+    "apt-get update",
+    "apt-get install -y -t bookworm openjdk-17-jdk-headless",
+    "update-java-alternatives -s java-1.17.0-openjdk-amd64",
+]
+JAVA17_PREBUILD = [
+    'echo "org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64" >> ../gradle.properties',
+]
+EXPECTED_SIGNING_CERT = "af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb"
+EXPECTED_BINARIES = (
+    "https://github.com/chrober/lyrion-display/releases/download/"
+    "v%v/lyrion-display-v%v.apk"
+)
 
 
 def git(*args: str) -> str:
@@ -45,6 +61,14 @@ def check(path: pathlib.Path) -> None:
     assert build.get("disable"), "Draft source build MUST remain disabled"
     assert build.get("gradle") == ["yes"], "Unexpected Gradle build variant"
     assert build.get("subdir") == "app", "Unexpected module"
+    # Fail closed: never allow arbitrary privileged commands to creep into the
+    # QA recipe or let the build silently fall back to Java 21.
+    assert build.get("sudo") == JAVA17_SUDO, "Unexpected privileged JDK setup"
+    assert build.get("prebuild") == JAVA17_PREBUILD, "Gradle must select Java 17"
+    assert obj.get("Binaries") == EXPECTED_BINARIES, "Unexpected upstream binary URL"
+    assert obj.get("AllowedAPKSigningKeys") == [EXPECTED_SIGNING_CERT], (
+        "Unexpected developer signing certificate"
+    )
     sha = build.get("commit")
     assert isinstance(sha, str) and re.fullmatch("[0-9a-f]{40}", sha), "Pin exact SHA"
     script = git("show", sha + ":app/build.gradle")
