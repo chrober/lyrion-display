@@ -11,7 +11,7 @@ The source repository contains a **disabled** review recipe for the exact publis
 - GitHub releases continue to use the established production signing credentials.
 - English and German text metadata under fastlane/metadata/android/, including current versionCode 9 changelogs.
 - The F-Droid QA workflow validates the disabled recipe, exact release tag and metadata on relevant PRs.
-- Historical baseline: The Trixie CI image reproduced v0.3.0 successfully **with mounted Temurin Java 17** ([run 44897086974](https://github.com/chrober/lyrion-display/actions/runs/44897086974)). A new test exercises the **actual supported `sudo` recipe** to install Bookworm OpenJDK 17 inside Trixie, followed by the same signature comparison. This is *not* official production acceptance.
+- **Supported Java 17 recipe validated in CI:** [run 44916494259](https://github.com/chrober/lyrion-display/actions/runs/44916494259) executed the metadata's `sudo` commands in F-Droid's Trixie CI image, installed Bookworm OpenJDK 17.0.19, rebuilt v0.3.0 and passed the SHA-256, signed-APK and `apksigcopier` comparisons. The earlier [Temurin Java 17 baseline](https://github.com/chrober/lyrion-display/actions/runs/44897086974) matched as well. Neither is an official F-Droid production build.
 
 ## Not yet established
 
@@ -24,7 +24,7 @@ The source repository contains a **disabled** review recipe for the exact publis
 
 ## Verification workflow (safe, no publication)
 
-`.github/workflows/fdroid-preflight.yml` runs metadata linting on PRs that affect the F-Droid files. The heavier buildserver-image test is also tied to these PRs, and checks the **published** v0.3.0 Git tag/source against the existing GitHub-signed APK. The earlier successful run used a GitHub-provided Temurin Java 17. The updated workflow installs the officially documented Bookworm OpenJDK 17 through the **metadata's own `sudo` commands** and asserts the exact pinned recipe, making it much closer to the real F-Droid build path. A GitHub CI pass **does not itself certify production F-Droid acceptance**.
+`.github/workflows/fdroid-preflight.yml` runs metadata linting on PRs that affect the F-Droid files. The heavier buildserver-image test is also tied to these PRs, and checks the **published** v0.3.0 Git tag/source against the existing GitHub-signed APK. The earlier successful run used GitHub-provided Temurin 17; the latest [passing run](https://github.com/chrober/lyrion-display/actions/runs/44916494259) installed Bookworm OpenJDK 17 **from the actual supported metadata `sudo` commands** and reproduced the same unsigned APK without a mounted GitHub JDK. A GitHub CI pass **does not itself certify production F-Droid acceptance**.
 
 The workflow also provides two manually triggered, opt-in test jobs under **Actions → F-Droid metadata and source-build preflight (no publishing) → Run workflow**:
 
