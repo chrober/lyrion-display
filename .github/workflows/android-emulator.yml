@@ -22,10 +22,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Fire TV Stick 4K (2018, AFTMM) runs Fire OS 6 / Android API 25.
+        # API 22 verifies the legacy visual-ready fallback. API 25 is the
+        # Fire TV Stick 4K (2018, AFTMM) Fire OS 6 compatibility gate.
         # An AOSP API 25 emulator is a compatibility gate, not a substitute
         # for manual remote/WebView testing on the actual Amazon hardware.
-        api-level: [25, 29]
+        include:
+          - api-level: 22
+            arch: x86
+          - api-level: 25
+            arch: x86_64
+          - api-level: 29
+            arch: x86_64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -44,7 +51,7 @@ jobs:
         with:
           api-level: ${{ matrix.api-level }}
           target: default
-          arch: x86_64
+          arch: ${{ matrix.arch }}
           profile: pixel_2
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true

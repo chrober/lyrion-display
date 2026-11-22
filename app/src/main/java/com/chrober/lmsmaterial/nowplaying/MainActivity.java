@@ -18,6 +18,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 import android.text.Editable;
@@ -61,6 +62,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_SERVER = "server";
     private static final String KEY_PLAYER = "player_id";
     private static final String KEY_KEEP_AWAKE = "keep_awake";
+    private static final String KEY_EXPERIMENTAL_PRERASTER = "experimental_offscreen_preraster";
     private static final String KEY_SHOW_PROGRESS = "show_progress";
     private static final String KEY_SHOW_TECH_INFO = "show_technical_info";
     private static final String KEY_SHOW_QUEUE_POSITION = "show_queue_position";
@@ -74,6 +76,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_SAMPLED_ACCENT = "material_sampled_accent";
 
     private static final String STARTUP_LOG_TAG = "LyrionStartup";
+    private static final long VISUAL_READY_TIMEOUT_MS = 1500L;
     private static final long GEAR_VISIBLE_MS = 5000L;
     private static final long GEAR_FADE_IN_MS = 230L;
     private static final long GEAR_FADE_OUT_MS = 700L;
@@ -99,6 +102,8 @@ public final class MainActivity extends Activity {
     private String appliedOptionsScript;
     private boolean browserReady;
     private StartupTimings startupTimings;
+    private long visualReadyGeneration;
+    private boolean visualReadyPending;
     private ImageButton gearButton;
     private EditText serverInput;
     private Spinner playerSpinner;
@@ -180,6 +185,7 @@ public final class MainActivity extends Activity {
         displayVisible = false;
         themeCatalogPending = "";
         startupTimings = null;
+        invalidateVisualReady();
         handler.removeCallbacksAndMessages(null);
         destroyBrowser();
         super.onDestroy();
@@ -221,6 +227,7 @@ public final class MainActivity extends Activity {
             gearButton.setVisibility(View.GONE);
         }
         displayVisible = false;
+        invalidateVisualReady();
         // Any pending cold-start trace is no longer relevant after entering Settings.
         startupTimings = null;
         updateWakeFlag();
@@ -343,6 +350,32 @@ public final class MainActivity extends Activity {
         add(content, label(supportsAwake
                 ? "Prevents Android's normal display timeout while this app is showing Now Playing. Normal power management resumes when the app is in the background."
                 : "Not supported on this device: no applicable Android display was detected.",
+                14, SUBTEXT, false), 0, 18);
+
+        content.addView(label("PERFORMANCE (EXPERIMENTAL)", 15, ACCENT, true));
+        CheckBox prerasterCheckbox = new CheckBox(this);
+        prerasterCheckbox.setText("Pre-render hidden WebView");
+        prerasterCheckbox.setTextColor(TEXT);
+        prerasterCheckbox.setTextSize(17);
+        prerasterCheckbox.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        prerasterCheckbox.setBackground(focusBackground());
+        prerasterCheckbox.setPadding(dp(10), dp(8), dp(10), dp(8));
+        prerasterCheckbox.setChecked(prefs.getBoolean(KEY_EXPERIMENTAL_PRERASTER, false));
+        prerasterCheckbox.setEnabled(WebViewReadinessPolicy.supportsVisualState(
+                Build.VERSION.SDK_INT));
+        prerasterCheckbox.setOnCheckedChangeListener((button, checked) -> {
+            prefs.edit().putBoolean(KEY_EXPERIMENTAL_PRERASTER, checked).apply();
+            // A reused WebView need not reload. The visibility experiment
+            // applies from the next page navigation or cold connection.
+            if (browser != null && Build.VERSION.SDK_INT >= 23)
+                WebViewApi23.setOffscreenPreRaster(browser, checked);
+        });
+        add(content, prerasterCheckbox, 6, 4);
+        add(content, label(WebViewReadinessPolicy.supportsVisualState(Build.VERSION.SDK_INT)
+                ? "Optional A/B test: prepare the hidden page before revealing it. "
+                    + "May increase memory use or provide no benefit. Off by default; "
+                    + "takes effect on the next page load. Not needed for normal use."
+                : "Requires Android 6.0 or newer (API 23). Disabled on this device.",
                 14, SUBTEXT, false), 0, 18);
 
         content.addView(label("NOW PLAYING CONTENT", 15, ACCENT, true));
@@ -659,6 +692,7 @@ public final class MainActivity extends Activity {
         draftPlayerId = null;
         requestSerial++;
         displayVisible = true;
+        invalidateVisualReady();
         handler.removeCallbacks(hideGear);
         setFullscreen(true);
         updateWakeFlag();
@@ -694,6 +728,7 @@ public final class MainActivity extends Activity {
                 displayLoading.setText("Applying display settings…");
                 displayLoading.setVisibility(View.VISIBLE);
                 browserReady = false;
+                if (experimentalPreRasterEnabled()) browser.setVisibility(View.INVISIBLE);
                 verifyMaterialDisplay(browser, displayLoading, 4);
             } else {
                 // Theme or selected player changed: navigate within the SAME
@@ -703,6 +738,7 @@ public final class MainActivity extends Activity {
                 browserReady = false;
                 displayLoading.setText("Connecting to Lyrion…");
                 displayLoading.setVisibility(View.VISIBLE);
+                if (experimentalPreRasterEnabled()) browser.setVisibility(View.INVISIBLE);
                 browser.loadUrl(activeUrl);
             }
             return;
@@ -710,7 +746,8 @@ public final class MainActivity extends Activity {
 
         destroyBrowser();
         activeUrl = nextUrl;
-        startupTimings = new StartupTimings(SystemClock.elapsedRealtime());
+        startupTimings = new StartupTimings(SystemClock.elapsedRealtime(),
+                experimentalPreRasterEnabled());
         // Cold starts and server-origin changes still use the verified probe.
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
@@ -752,6 +789,7 @@ public final class MainActivity extends Activity {
         browserReady = false;
         browser = new WebView(this);
         browser.setBackgroundColor(BG);
+        if (experimentalPreRasterEnabled()) browser.setVisibility(View.INVISIBLE);
         browser.setFocusable(false);
         browser.setFocusableInTouchMode(false);
         browser.setOnTouchListener((v, event) -> true); // Prevent any WebView interaction.
@@ -770,6 +808,8 @@ public final class MainActivity extends Activity {
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
+        if (Build.VERSION.SDK_INT >= 23)
+            WebViewApi23.setOffscreenPreRaster(browser, experimentalPreRasterEnabled());
         // Keep the opaque native loading view *above* the WebView until the
         // actual Material Skin page is verified. No raw HTTP error is exposed.
         root.addView(browser, 0, new FrameLayout.LayoutParams(-1, -1));
@@ -787,6 +827,7 @@ public final class MainActivity extends Activity {
                 return !ServerAddress.isAllowedMaterialNavigation(trustedServer, url);
             }
             @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (browser == view && displayVisible) invalidateVisualReady();
                 if (browser == view && displayVisible
                         && !ServerAddress.isAllowedMaterialNavigation(trustedServer, url)) {
                     view.stopLoading();
@@ -870,22 +911,23 @@ public final class MainActivity extends Activity {
                 prefs.getBoolean(KEY_SHOW_CLOCK, false));
     }
 
+    /**
+     * The JavaScript acknowledgement only confirms Material Skin's DOM state.
+     * API 23+ additionally waits until that state is eligible for the next
+     * WebView draw. It is NOT a guarantee that pixels have reached the TV.
+     */
     private void verifyMaterialDisplay(WebView view, TextView loading, int retriesRemaining) {
-        if (browser != view || !displayVisible) return;
+        if (browser != view || !displayVisible || visualReadyPending) return;
         String javascript = displayOptionsScript();
         view.evaluateJavascript(javascript, result -> {
-            if (browser != view || !displayVisible) return;
+            if (browser != view || !displayVisible || visualReadyPending
+                    || isFinishing() || isDestroyed()) return;
             if ("\"reload\"".equals(result)) return;
             if ("\"ready\"".equals(result)) {
-                browserReady = true;
                 appliedOptionsScript = javascript;
-                loading.setVisibility(View.GONE);
-                if (startupTimings != null) {
-                    Log.i(STARTUP_LOG_TAG, startupTimings.report(
-                            "ready", SystemClock.elapsedRealtime()));
-                    startupTimings = null;
-                }
-                sampleWebPalette(view, null);
+                if (startupTimings != null)
+                    startupTimings.domReady(SystemClock.elapsedRealtime());
+                beginVisualReady(view, loading);
             } else if (retriesRemaining > 0) {
                 handler.postDelayed(() -> verifyMaterialDisplay(view, loading,
                         retriesRemaining - 1), 500L);
@@ -894,6 +936,56 @@ public final class MainActivity extends Activity {
                         + "display did not finish loading. Please retry.");
             }
         });
+    }
+
+    private boolean experimentalPreRasterEnabled() {
+        return WebViewReadinessPolicy.shouldPreRaster(Build.VERSION.SDK_INT,
+                prefs.getBoolean(KEY_EXPERIMENTAL_PRERASTER, false));
+    }
+
+    private void invalidateVisualReady() {
+        visualReadyGeneration++;
+        visualReadyPending = false;
+    }
+
+    private void beginVisualReady(WebView view, TextView loading) {
+        if (visualReadyPending || browser != view || !displayVisible) return;
+        final long generation = ++visualReadyGeneration;
+        visualReadyPending = true;
+        if (!WebViewReadinessPolicy.supportsVisualState(Build.VERSION.SDK_INT)) {
+            // Android 5.1 (API 22): retain the original JavaScript-only path.
+            completeVisualReady(view, loading, generation, "api22");
+            return;
+        }
+        // Avoid a stuck loading screen if an older/vendor WebView never calls
+        // us back. The timeout is marked clearly so benchmarks cannot count it
+        // as a confirmed visual-state commit.
+        handler.postDelayed(() -> completeVisualReady(
+                view, loading, generation, "timeout"), VISUAL_READY_TIMEOUT_MS);
+        WebViewApi23.requestVisualState(view, generation, requestId -> {
+            if (requestId == generation)
+                completeVisualReady(view, loading, generation, "callback");
+        });
+    }
+
+    private void completeVisualReady(WebView view, TextView loading, long generation,
+            String visualState) {
+        if (!visualReadyPending || visualReadyGeneration != generation
+                || browser != view || !displayVisible || isFinishing() || isDestroyed())
+            return;
+        invalidateVisualReady(); // Only the first callback/timeout can complete.
+        // Required by Android when the preraster experiment hides the WebView:
+        // make the attached INVISIBLE view VISIBLE from the visual callback.
+        view.setVisibility(View.VISIBLE);
+        browserReady = true;
+        loading.setVisibility(View.GONE);
+        if (startupTimings != null) {
+            startupTimings.visualReady(SystemClock.elapsedRealtime(), visualState);
+            Log.i(STARTUP_LOG_TAG, startupTimings.report(
+                    "ready", SystemClock.elapsedRealtime()));
+            startupTimings = null;
+        }
+        sampleWebPalette(view, null);
     }
 
     private void materialProbeFailed(MaterialSkinProbe.Result result) {
@@ -934,6 +1026,7 @@ public final class MainActivity extends Activity {
         // verified reuse candidate. Retry/Settings must take the guarded path.
         browserReady = false;
         displayVisible = false;
+        invalidateVisualReady();
         if (startupTimings != null) {
             Log.i(STARTUP_LOG_TAG, startupTimings.report(
                     "error", SystemClock.elapsedRealtime()));
@@ -1048,6 +1141,7 @@ public final class MainActivity extends Activity {
     }
 
     private void destroyBrowser() {
+        invalidateVisualReady();
         WebView old = browser;
         browser = null;
         browserReady = false;
