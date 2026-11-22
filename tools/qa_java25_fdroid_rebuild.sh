@@ -42,6 +42,11 @@ if ! git -C "$source_checkout" cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null; t
 fi
 git -C "$source_checkout" checkout --quiet "$GITHUB_SHA"
 test "$(git -C "$source_checkout" rev-parse HEAD)" = "$GITHUB_SHA"
+# fdroidserver uses this marker to prove the pre-seeded Git checkout belongs
+# to the requested VCS URL. Without it, it deletes the checkout and loses the
+# PR-only synthetic merge commit before the build even starts.
+printf '%s\n' 'git https://github.com/chrober/lyrion-display.git' \
+  > "$qa/build/.fdroidvcs-com.chrober.lmsmaterial.nowplaying"
 
 # F-Droid metadata is TEMPORARY and not committed/submitted/published.
 # The v0.3.0 recipe and its Java 17 configuration are never modified.
