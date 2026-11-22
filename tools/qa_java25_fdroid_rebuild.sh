@@ -24,6 +24,9 @@ fdroidserver_dir="$qa-fdroidserver"
 trap 'rm -rf "$qa" "$fdroidserver_dir"' EXIT
 chmod 755 "$qa"
 mkdir -p "$qa/metadata" "$qa/build" "$qa/tmp"
+# The repository declares its custom F-Droid categories in config/categories.yml;
+# without this the independent fdroid lint cannot resolve "Multimedia".
+cp -R "$GITHUB_WORKSPACE/fdroid/config" "$qa/config"
 
 # Clone exactly the checked out revision, including synthetic PR merge commits.
 git clone --quiet --no-checkout "$GITHUB_WORKSPACE" "$qa/build/com.chrober.lmsmaterial.nowplaying"
