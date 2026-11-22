@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_PLAYER = "player_id";
     private static final String KEY_KEEP_AWAKE = "keep_awake";
     private static final String KEY_EXPERIMENTAL_PRERASTER = "experimental_offscreen_preraster";
+    private static final String KEY_EXPERIMENTAL_EARLY_READY = "experimental_early_now_playing";
     private static final String KEY_SHOW_PROGRESS = "show_progress";
     private static final String KEY_SHOW_TECH_INFO = "show_technical_info";
     private static final String KEY_SHOW_QUEUE_POSITION = "show_queue_position";
@@ -78,6 +79,8 @@ public final class MainActivity extends Activity {
     private static final String STARTUP_LOG_TAG = "LyrionStartup";
     private static final String STARTUP_DETAIL_LOG_TAG = "LyrionStartupDetail";
     private static final long VISUAL_READY_TIMEOUT_MS = 1500L;
+    private static final long EARLY_PROBE_INITIAL_DELAY_MS = 70L;
+    private static final long EARLY_OPTIONS_FALLBACK_MS = 1400L;
     private static final long GEAR_VISIBLE_MS = 5000L;
     private static final long GEAR_FADE_IN_MS = 230L;
     private static final long GEAR_FADE_OUT_MS = 700L;
@@ -106,6 +109,12 @@ public final class MainActivity extends Activity {
     private WebViewNavigationTrace navigationTrace;
     private long visualReadyGeneration;
     private boolean visualReadyPending;
+    private boolean optionsEvaluationPending;
+    private long optionsEvaluationSerial;
+    private boolean earlyPageFinished;
+    private boolean earlyProbePending;
+    private int earlyProbeAttempts;
+    private int earlyConsecutivePasses;
     private ImageButton gearButton;
     private EditText serverInput;
     private Spinner playerSpinner;
@@ -188,6 +197,9 @@ public final class MainActivity extends Activity {
         themeCatalogPending = "";
         startupTimings = null;
         navigationTrace = null;
+        optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
+        earlyProbePending = false;
         invalidateVisualReady();
         handler.removeCallbacksAndMessages(null);
         destroyBrowser();
@@ -234,6 +246,9 @@ public final class MainActivity extends Activity {
         // Any pending cold-start trace is no longer relevant after entering Settings.
         startupTimings = null;
         navigationTrace = null;
+        optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
+        earlyProbePending = false;
         updateWakeFlag();
         setFullscreen(false);
         getWindow().setStatusBarColor(BG);
@@ -379,6 +394,25 @@ public final class MainActivity extends Activity {
                 ? "Optional A/B test: prepare the hidden page before revealing it. "
                     + "May increase memory use or provide no benefit. Off by default; "
                     + "takes effect on the next page load. Not needed for normal use."
+                : "Requires Android 6.0 or newer (API 23). Disabled on this device.",
+                14, SUBTEXT, false), 0, 18);
+
+        CheckBox earlyCheckbox = new CheckBox(this);
+        earlyCheckbox.setText("Early Now Playing readiness");
+        earlyCheckbox.setTextColor(TEXT);
+        earlyCheckbox.setTextSize(17);
+        earlyCheckbox.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        earlyCheckbox.setBackground(focusBackground());
+        earlyCheckbox.setPadding(dp(10), dp(8), dp(10), dp(8));
+        earlyCheckbox.setChecked(prefs.getBoolean(KEY_EXPERIMENTAL_EARLY_READY, false));
+        earlyCheckbox.setEnabled(Build.VERSION.SDK_INT >= 23);
+        earlyCheckbox.setOnCheckedChangeListener((button, checked) ->
+                prefs.edit().putBoolean(KEY_EXPERIMENTAL_EARLY_READY, checked).apply());
+        add(content, earlyCheckbox, 3, 4);
+        add(content, label(Build.VERSION.SDK_INT >= 23
+                ? "A/B experiment: attempt to prepare the mounted Now Playing view "
+                    + "before page loading finishes. The existing path is the fallback. "
+                    + "Off by default; takes effect on the next cold connection."
                 : "Requires Android 6.0 or newer (API 23). Disabled on this device.",
                 14, SUBTEXT, false), 0, 18);
 
@@ -782,7 +816,10 @@ public final class MainActivity extends Activity {
             loading.setText("Connecting to Lyrion…");
             long navigationStart = SystemClock.elapsedRealtime();
             timings.navigationStarted(navigationStart);
-            if (navigationTrace != null) navigationTrace.navigationStarted(navigationStart);
+            if (navigationTrace != null) {
+                navigationTrace.navigationStarted(navigationStart);
+                navigationTrace.earlyMode(experimentalEarlyReadinessEnabled());
+            }
             browser.loadUrl(activeUrl);
         });
         timings.webViewStarted(SystemClock.elapsedRealtime());
@@ -836,6 +873,12 @@ public final class MainActivity extends Activity {
             @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 if (browser == view && displayVisible) {
                     invalidateVisualReady();
+                    earlyPageFinished = false;
+                    earlyProbePending = false;
+                    earlyProbeAttempts = 0;
+                    earlyConsecutivePasses = 0;
+                    optionsEvaluationPending = false;
+                    optionsEvaluationSerial++;
                     if (navigationTrace != null)
                         navigationTrace.pageStarted(SystemClock.elapsedRealtime(),
                                 isNowPlayingStub(url));
@@ -864,6 +907,12 @@ public final class MainActivity extends Activity {
                         trace.commitProbeCompleted(SystemClock.elapsedRealtime(),
                                 WebViewCommitProbe.parse(raw));
                 });
+                if (experimentalEarlyReadinessEnabled() && !earlyPageFinished
+                        && ServerAddress.isAllowedMaterialNavigation(trustedServer, url)) {
+                    final long generation = visualReadyGeneration;
+                    handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
+                            EARLY_PROBE_INITIAL_DELAY_MS);
+                }
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (browser != view || !displayVisible) return;
@@ -876,7 +925,30 @@ public final class MainActivity extends Activity {
                 if (navigationTrace != null)
                     navigationTrace.pageFinished(SystemClock.elapsedRealtime(), stub);
                 if (stub) return;
-                verifyMaterialDisplay(view, loading, 4);
+                earlyPageFinished = true;
+                // Always retain the original onPageFinished fallback. An early
+                // gate may still be pending, but it cannot reveal an unfinished
+                // document once this path has taken over.
+                if (optionsEvaluationPending) {
+                    // A speculative early evaluation may have been queued when
+                    // the normal page-finished callback arrived. If the vendor
+                    // WebView never completes it, resume the normal path with a
+                    // fresh evaluation rather than leaving the overlay stuck.
+                    final long generation = visualReadyGeneration;
+                    final long evalSerial = optionsEvaluationSerial;
+                    handler.postDelayed(() -> {
+                        if (generation == visualReadyGeneration && browser == view
+                                && displayVisible && optionsEvaluationPending
+                                && optionsEvaluationSerial == evalSerial
+                                && !visualReadyPending && !browserReady) {
+                            optionsEvaluationSerial++;
+                            optionsEvaluationPending = false;
+                            verifyMaterialDisplay(view, loading, 4);
+                        }
+                    }, EARLY_OPTIONS_FALLBACK_MS);
+                } else {
+                    verifyMaterialDisplay(view, loading, 4);
+                }
             }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request,
                                                        WebResourceResponse response) {
@@ -955,13 +1027,61 @@ public final class MainActivity extends Activity {
      * WebView draw. It is NOT a guarantee that pixels have reached the TV.
      */
     private void verifyMaterialDisplay(WebView view, TextView loading, int retriesRemaining) {
-        if (browser != view || !displayVisible || visualReadyPending) return;
+        verifyMaterialDisplay(view, loading, retriesRemaining, false);
+    }
+
+    /**
+     * A successful early probe proves that mounted, visible Vue controls exist;
+     * it does NOT prove the stream, artwork or every network request is ready.
+     * Two consecutive snapshots are required, with onPageFinished always
+     * available as the original safe fallback.
+     */
+    private void tryEarlyNowPlaying(WebView view, TextView loading, long generation) {
+        if (!experimentalEarlyReadinessEnabled() || generation != visualReadyGeneration
+                || browser != view || !displayVisible || earlyPageFinished
+                || visualReadyPending || browserReady || optionsEvaluationPending
+                || earlyProbePending || isFinishing() || isDestroyed()
+                || earlyProbeAttempts >= EarlyNowPlayingProbe.MAX_ATTEMPTS) return;
+
+        earlyProbeAttempts++;
+        if (navigationTrace != null) navigationTrace.earlyProbe();
+        earlyProbePending = true;
+        view.evaluateJavascript(EarlyNowPlayingProbe.javascript(), raw -> {
+            if (generation != visualReadyGeneration || browser != view || !displayVisible
+                    || isFinishing() || isDestroyed()) return;
+            earlyProbePending = false;
+            if (earlyPageFinished || visualReadyPending || browserReady
+                    || optionsEvaluationPending) return;
+
+            EarlyNowPlayingProbe.Result result = EarlyNowPlayingProbe.parse(raw);
+            earlyConsecutivePasses = result.qualified()
+                    ? earlyConsecutivePasses + 1 : 0;
+            if (earlyConsecutivePasses >= EarlyNowPlayingProbe.REQUIRED_CONSECUTIVE_PASSES) {
+                if (navigationTrace != null)
+                    navigationTrace.earlyCandidate(SystemClock.elapsedRealtime());
+                verifyMaterialDisplay(view, loading, 4, true);
+            } else if (earlyProbeAttempts < EarlyNowPlayingProbe.MAX_ATTEMPTS) {
+                handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
+                        EarlyNowPlayingProbe.RETRY_DELAY_MS);
+            }
+        });
+    }
+
+    private void verifyMaterialDisplay(WebView view, TextView loading,
+            int retriesRemaining, boolean early) {
+        if (browser != view || !displayVisible || visualReadyPending
+                || browserReady || optionsEvaluationPending) return;
+        optionsEvaluationPending = true;
+        final long evalSerial = ++optionsEvaluationSerial;
+        final long generation = visualReadyGeneration;
         String javascript = displayOptionsScript();
         final WebViewNavigationTrace trace = navigationTrace;
         if (trace != null) trace.optionsEvaluationStarted(SystemClock.elapsedRealtime());
         view.evaluateJavascript(TimedDisplayOptions.wrap(javascript), raw -> {
-            if (browser != view || !displayVisible || visualReadyPending
+            if (generation != visualReadyGeneration || evalSerial != optionsEvaluationSerial
+                    || browser != view || !displayVisible
                     || isFinishing() || isDestroyed()) return;
+            optionsEvaluationPending = false;
             TimedDisplayOptions.Result result = TimedDisplayOptions.parse(raw);
             if (trace != null && navigationTrace == trace)
                 trace.optionsEvaluationFinished(SystemClock.elapsedRealtime(),
@@ -970,17 +1090,26 @@ public final class MainActivity extends Activity {
             if (result.status == TimedDisplayOptions.Status.RELOAD) return;
             if (result.status == TimedDisplayOptions.Status.READY) {
                 appliedOptionsScript = javascript;
+                if (trace != null && navigationTrace == trace)
+                    trace.readySource(early && !earlyPageFinished);
                 if (startupTimings != null)
                     startupTimings.domReady(SystemClock.elapsedRealtime());
                 beginVisualReady(view, loading);
             } else if (retriesRemaining > 0) {
-                handler.postDelayed(() -> verifyMaterialDisplay(view, loading,
-                        retriesRemaining - 1), 500L);
+                handler.postDelayed(() -> {
+                    if (generation == visualReadyGeneration)
+                        verifyMaterialDisplay(view, loading, retriesRemaining - 1);
+                }, 500L);
             } else {
                 connectionFailed("Lyrion responded, but the Material Skin Now Playing "
                         + "display did not finish loading. Please retry.");
             }
         });
+    }
+
+    private boolean experimentalEarlyReadinessEnabled() {
+        return EarlyNowPlayingProbe.enabled(Build.VERSION.SDK_INT,
+                prefs.getBoolean(KEY_EXPERIMENTAL_EARLY_READY, false));
     }
 
     private boolean experimentalPreRasterEnabled() {
@@ -1205,6 +1334,9 @@ public final class MainActivity extends Activity {
 
     private void destroyBrowser() {
         navigationTrace = null;
+        earlyProbePending = false;
+        optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
         invalidateVisualReady();
         WebView old = browser;
         browser = null;
