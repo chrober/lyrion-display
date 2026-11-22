@@ -76,6 +76,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_SAMPLED_ACCENT = "material_sampled_accent";
 
     private static final String STARTUP_LOG_TAG = "LyrionStartup";
+    private static final String STARTUP_DETAIL_LOG_TAG = "LyrionStartupDetail";
     private static final long VISUAL_READY_TIMEOUT_MS = 1500L;
     private static final long GEAR_VISIBLE_MS = 5000L;
     private static final long GEAR_FADE_IN_MS = 230L;
@@ -102,6 +103,7 @@ public final class MainActivity extends Activity {
     private String appliedOptionsScript;
     private boolean browserReady;
     private StartupTimings startupTimings;
+    private WebViewNavigationTrace navigationTrace;
     private long visualReadyGeneration;
     private boolean visualReadyPending;
     private ImageButton gearButton;
@@ -185,6 +187,7 @@ public final class MainActivity extends Activity {
         displayVisible = false;
         themeCatalogPending = "";
         startupTimings = null;
+        navigationTrace = null;
         invalidateVisualReady();
         handler.removeCallbacksAndMessages(null);
         destroyBrowser();
@@ -230,6 +233,7 @@ public final class MainActivity extends Activity {
         invalidateVisualReady();
         // Any pending cold-start trace is no longer relevant after entering Settings.
         startupTimings = null;
+        navigationTrace = null;
         updateWakeFlag();
         setFullscreen(false);
         getWindow().setStatusBarColor(BG);
@@ -748,6 +752,7 @@ public final class MainActivity extends Activity {
         activeUrl = nextUrl;
         startupTimings = new StartupTimings(SystemClock.elapsedRealtime(),
                 experimentalPreRasterEnabled());
+        navigationTrace = new WebViewNavigationTrace();
         // Cold starts and server-origin changes still use the verified probe.
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
@@ -775,7 +780,9 @@ public final class MainActivity extends Activity {
                 return;
             }
             loading.setText("Connecting to Lyrion…");
-            timings.navigationStarted(SystemClock.elapsedRealtime());
+            long navigationStart = SystemClock.elapsedRealtime();
+            timings.navigationStarted(navigationStart);
+            if (navigationTrace != null) navigationTrace.navigationStarted(navigationStart);
             browser.loadUrl(activeUrl);
         });
         timings.webViewStarted(SystemClock.elapsedRealtime());
@@ -827,7 +834,12 @@ public final class MainActivity extends Activity {
                 return !ServerAddress.isAllowedMaterialNavigation(trustedServer, url);
             }
             @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (browser == view && displayVisible) invalidateVisualReady();
+                if (browser == view && displayVisible) {
+                    invalidateVisualReady();
+                    if (navigationTrace != null)
+                        navigationTrace.pageStarted(SystemClock.elapsedRealtime(),
+                                isNowPlayingStub(url));
+                }
                 if (browser == view && displayVisible
                         && !ServerAddress.isAllowedMaterialNavigation(trustedServer, url)) {
                     view.stopLoading();
@@ -841,9 +853,10 @@ public final class MainActivity extends Activity {
                 // same origin as Material Skin, then loaded once more if changed.
                 // /np-only is a small JavaScript redirect page, not the actual
                 // Material display. Wait until its destination has loaded.
-                String path = Uri.parse(url).getPath();
-                if (path != null && (path.endsWith("/np-only")
-                        || path.endsWith("/np-only.html"))) return;
+                boolean stub = isNowPlayingStub(url);
+                if (navigationTrace != null)
+                    navigationTrace.pageFinished(SystemClock.elapsedRealtime(), stub);
+                if (stub) return;
                 verifyMaterialDisplay(view, loading, 4);
             }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request,
@@ -902,6 +915,12 @@ public final class MainActivity extends Activity {
      * The preflight proved the plugin endpoint exists. Give a cold WebView
      * several chances to initialize before reporting a display load failure.
      */
+    private static boolean isNowPlayingStub(String url) {
+        String path = Uri.parse(url).getPath();
+        return path != null && (path.endsWith("/np-only")
+                || path.endsWith("/np-only.html"));
+    }
+
     private String displayOptionsScript() {
         return NowPlayingDisplayOptions.script(
                 prefs.getInt(KEY_COLOR_USAGE, MaterialTheme.COLOR_COVER),
@@ -919,9 +938,14 @@ public final class MainActivity extends Activity {
     private void verifyMaterialDisplay(WebView view, TextView loading, int retriesRemaining) {
         if (browser != view || !displayVisible || visualReadyPending) return;
         String javascript = displayOptionsScript();
+        final WebViewNavigationTrace trace = navigationTrace;
+        if (trace != null) trace.optionsEvaluationStarted(SystemClock.elapsedRealtime());
         view.evaluateJavascript(javascript, result -> {
             if (browser != view || !displayVisible || visualReadyPending
                     || isFinishing() || isDestroyed()) return;
+            if (trace != null && navigationTrace == trace)
+                trace.optionsEvaluationFinished(SystemClock.elapsedRealtime(),
+                        "\"\\\"reload\\\"\"".equals(result));
             if ("\"reload\"".equals(result)) return;
             if ("\"ready\"".equals(result)) {
                 appliedOptionsScript = javascript;
@@ -979,11 +1003,24 @@ public final class MainActivity extends Activity {
         view.setVisibility(View.VISIBLE);
         browserReady = true;
         loading.setVisibility(View.GONE);
+        long readyAt = SystemClock.elapsedRealtime();
         if (startupTimings != null) {
-            startupTimings.visualReady(SystemClock.elapsedRealtime(), visualState);
-            Log.i(STARTUP_LOG_TAG, startupTimings.report(
-                    "ready", SystemClock.elapsedRealtime()));
+            startupTimings.visualReady(readyAt, visualState);
+            Log.i(STARTUP_LOG_TAG, startupTimings.report("ready", readyAt));
             startupTimings = null;
+        }
+        if (navigationTrace != null) {
+            final WebViewNavigationTrace completed = navigationTrace;
+            navigationTrace = null;
+            Log.i(STARTUP_DETAIL_LOG_TAG, completed.report("ready", readyAt));
+            // Passive, asynchronous snapshot AFTER revealing the real display.
+            // Do not hold the loading overlay for any diagnostic evaluation.
+            final int serial = requestSerial;
+            view.evaluateJavascript(WebViewPagePerformance.javascript(), raw -> {
+                if (browser == view && displayVisible && requestSerial == serial
+                        && !isFinishing() && !isDestroyed())
+                    Log.i(STARTUP_DETAIL_LOG_TAG, WebViewPagePerformance.report(raw));
+            });
         }
         sampleWebPalette(view, null);
     }
@@ -1031,6 +1068,11 @@ public final class MainActivity extends Activity {
             Log.i(STARTUP_LOG_TAG, startupTimings.report(
                     "error", SystemClock.elapsedRealtime()));
             startupTimings = null;
+        }
+        if (navigationTrace != null) {
+            Log.i(STARTUP_DETAIL_LOG_TAG,
+                    navigationTrace.report("error", SystemClock.elapsedRealtime()));
+            navigationTrace = null;
         }
         // WebViewClient may call us from one of the renderer callbacks.
         // Never destroy that same WebView synchronously inside its callback:
@@ -1141,6 +1183,7 @@ public final class MainActivity extends Activity {
     }
 
     private void destroyBrowser() {
+        navigationTrace = null;
         invalidateVisualReady();
         WebView old = browser;
         browser = null;
