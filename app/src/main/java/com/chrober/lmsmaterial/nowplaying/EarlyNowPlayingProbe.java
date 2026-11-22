@@ -12,8 +12,14 @@ import org.json.JSONArray;
  * track/player data, make requests or install a JavaScript bridge.
  */
 final class EarlyNowPlayingProbe {
-    static final int MAX_ATTEMPTS = 8;
-    static final long RETRY_DELAY_MS = 160L;
+    // The final Material Skin document took ~2 seconds to finish on Fire OS 6.
+    // Eight probes at 160 ms intervals could expire before it built the UI.
+    // The runner stops immediately at onPageFinished regardless of budget.
+    static final int MAX_ATTEMPTS = 20;
+    static final long RETRY_DELAY_MS = 130L;
+    // A WebView evaluating JavaScript during navigation may never invoke the
+    // callback. Invalidate that *read-only* probe and try again, bounded.
+    static final long PROBE_CALLBACK_TIMEOUT_MS = 550L;
     static final int REQUIRED_CONSECUTIVE_PASSES = 2;
 
     static final class Result {
@@ -74,7 +80,8 @@ final class EarlyNowPlayingProbe {
     }
 
     static boolean enabled(int sdk, boolean optedIn) {
-        // API 22 has no onPageCommitVisible event.
+        // The experimental baseline was API 23+; API 22 retains its original
+        // onPageFinished behavior even though onPageStarted exists there.
         return sdk >= 23 && optedIn;
     }
 
