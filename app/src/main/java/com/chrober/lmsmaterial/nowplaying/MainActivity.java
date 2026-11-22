@@ -18,6 +18,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -71,6 +73,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_SAMPLED_TEXT = "material_sampled_text";
     private static final String KEY_SAMPLED_ACCENT = "material_sampled_accent";
 
+    private static final String STARTUP_LOG_TAG = "LyrionStartup";
     private static final long GEAR_VISIBLE_MS = 5000L;
     private static final long GEAR_FADE_IN_MS = 230L;
     private static final long GEAR_FADE_OUT_MS = 700L;
@@ -95,6 +98,7 @@ public final class MainActivity extends Activity {
     private String browserServer;
     private String appliedOptionsScript;
     private boolean browserReady;
+    private StartupTimings startupTimings;
     private ImageButton gearButton;
     private EditText serverInput;
     private Spinner playerSpinner;
@@ -211,6 +215,8 @@ public final class MainActivity extends Activity {
             gearButton.setVisibility(View.GONE);
         }
         displayVisible = false;
+        // Any pending cold-start trace is no longer relevant after entering Settings.
+        startupTimings = null;
         updateWakeFlag();
         setFullscreen(false);
         getWindow().setStatusBarColor(BG);
@@ -696,6 +702,7 @@ public final class MainActivity extends Activity {
 
         destroyBrowser();
         activeUrl = nextUrl;
+        startupTimings = new StartupTimings(SystemClock.elapsedRealtime());
         // Cold starts and server-origin changes still use the verified probe.
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
@@ -708,19 +715,30 @@ public final class MainActivity extends Activity {
         setContentView(root);
 
         final int serial = requestSerial;
+        final StartupTimings timings = startupTimings;
+        // Start network IO first. While its background thread checks Material
+        // Skin, initialize an EMPTY WebView on the UI thread behind the opaque
+        // native loading view. No navigation is allowed until probe success.
+        timings.probeStarted(SystemClock.elapsedRealtime());
         MaterialSkinProbe.check(activeUrl, result -> {
-            if (serial != requestSerial || !displayVisible || isFinishing() || isDestroyed())
+            if (serial != requestSerial || !displayVisible || isFinishing() || isDestroyed()
+                    || browser == null || startupTimings != timings)
                 return;
+            timings.probeFinished(SystemClock.elapsedRealtime());
             if (result.status != MaterialSkinProbe.Status.AVAILABLE) {
                 materialProbeFailed(result);
                 return;
             }
             loading.setText("Connecting to Lyrion…");
-            loadNowPlaying(root, loading);
+            timings.navigationStarted(SystemClock.elapsedRealtime());
+            browser.loadUrl(activeUrl);
         });
+        timings.webViewStarted(SystemClock.elapsedRealtime());
+        prepareNowPlayingWebView(root, loading);
+        timings.webViewPrepared(SystemClock.elapsedRealtime());
     }
 
-    private void loadNowPlaying(FrameLayout root, TextView loading) {
+    private void prepareNowPlayingWebView(FrameLayout root, TextView loading) {
         final String trustedServer = ServerAddress.normalize(prefs.getString(KEY_SERVER, ""));
         browserServer = trustedServer;
         browserReady = false;
@@ -827,7 +845,8 @@ public final class MainActivity extends Activity {
                 dp(56), dp(56), Gravity.TOP | Gravity.END);
         gearParams.setMargins(0, dp(22), dp(22), 0);
         root.addView(gearButton, gearParams);
-        browser.loadUrl(activeUrl);
+        // Deliberately do NOT load the page here: the probe callback is the
+        // single gate that authorizes navigation to the trusted Lyrion URL.
     }
 
     /**
@@ -853,6 +872,11 @@ public final class MainActivity extends Activity {
                 browserReady = true;
                 appliedOptionsScript = javascript;
                 loading.setVisibility(View.GONE);
+                if (startupTimings != null) {
+                    Log.i(STARTUP_LOG_TAG, startupTimings.report(
+                            "ready", SystemClock.elapsedRealtime()));
+                    startupTimings = null;
+                }
                 sampleWebPalette(view, null);
             } else if (retriesRemaining > 0) {
                 handler.postDelayed(() -> verifyMaterialDisplay(view, loading,
@@ -902,6 +926,14 @@ public final class MainActivity extends Activity {
         // verified reuse candidate. Retry/Settings must take the guarded path.
         browserReady = false;
         displayVisible = false;
+        if (startupTimings != null) {
+            Log.i(STARTUP_LOG_TAG, startupTimings.report(
+                    "error", SystemClock.elapsedRealtime()));
+            startupTimings = null;
+        }
+        // Release a prewarmed but unverified renderer immediately. A retry
+        // will start the guarded network probe and create a fresh WebView.
+        destroyBrowser();
         updateWakeFlag();
         new AlertDialog.Builder(this)
                 .setTitle(title)
