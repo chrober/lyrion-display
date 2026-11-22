@@ -80,6 +80,7 @@ public final class MainActivity extends Activity {
     private static final String STARTUP_DETAIL_LOG_TAG = "LyrionStartupDetail";
     private static final long VISUAL_READY_TIMEOUT_MS = 1500L;
     private static final long EARLY_PROBE_INITIAL_DELAY_MS = 70L;
+    private static final long EARLY_OPTIONS_FALLBACK_MS = 1400L;
     private static final long GEAR_VISIBLE_MS = 5000L;
     private static final long GEAR_FADE_IN_MS = 230L;
     private static final long GEAR_FADE_OUT_MS = 700L;
@@ -109,6 +110,7 @@ public final class MainActivity extends Activity {
     private long visualReadyGeneration;
     private boolean visualReadyPending;
     private boolean optionsEvaluationPending;
+    private long optionsEvaluationSerial;
     private boolean earlyPageFinished;
     private boolean earlyProbePending;
     private int earlyProbeAttempts;
@@ -196,6 +198,7 @@ public final class MainActivity extends Activity {
         startupTimings = null;
         navigationTrace = null;
         optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
         earlyProbePending = false;
         invalidateVisualReady();
         handler.removeCallbacksAndMessages(null);
@@ -244,6 +247,7 @@ public final class MainActivity extends Activity {
         startupTimings = null;
         navigationTrace = null;
         optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
         earlyProbePending = false;
         updateWakeFlag();
         setFullscreen(false);
@@ -874,6 +878,7 @@ public final class MainActivity extends Activity {
                     earlyProbeAttempts = 0;
                     earlyConsecutivePasses = 0;
                     optionsEvaluationPending = false;
+                    optionsEvaluationSerial++;
                     if (navigationTrace != null)
                         navigationTrace.pageStarted(SystemClock.elapsedRealtime(),
                                 isNowPlayingStub(url));
@@ -924,7 +929,26 @@ public final class MainActivity extends Activity {
                 // Always retain the original onPageFinished fallback. An early
                 // gate may still be pending, but it cannot reveal an unfinished
                 // document once this path has taken over.
-                verifyMaterialDisplay(view, loading, 4);
+                if (optionsEvaluationPending) {
+                    // A speculative early evaluation may have been queued when
+                    // the normal page-finished callback arrived. If the vendor
+                    // WebView never completes it, resume the normal path with a
+                    // fresh evaluation rather than leaving the overlay stuck.
+                    final long generation = visualReadyGeneration;
+                    final long evalSerial = optionsEvaluationSerial;
+                    handler.postDelayed(() -> {
+                        if (generation == visualReadyGeneration && browser == view
+                                && displayVisible && optionsEvaluationPending
+                                && optionsEvaluationSerial == evalSerial
+                                && !visualReadyPending && !browserReady) {
+                            optionsEvaluationSerial++;
+                            optionsEvaluationPending = false;
+                            verifyMaterialDisplay(view, loading, 4);
+                        }
+                    }, EARLY_OPTIONS_FALLBACK_MS);
+                } else {
+                    verifyMaterialDisplay(view, loading, 4);
+                }
             }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request,
                                                        WebResourceResponse response) {
@@ -1048,12 +1072,14 @@ public final class MainActivity extends Activity {
         if (browser != view || !displayVisible || visualReadyPending
                 || browserReady || optionsEvaluationPending) return;
         optionsEvaluationPending = true;
+        final long evalSerial = ++optionsEvaluationSerial;
         final long generation = visualReadyGeneration;
         String javascript = displayOptionsScript();
         final WebViewNavigationTrace trace = navigationTrace;
         if (trace != null) trace.optionsEvaluationStarted(SystemClock.elapsedRealtime());
         view.evaluateJavascript(TimedDisplayOptions.wrap(javascript), raw -> {
-            if (generation != visualReadyGeneration || browser != view || !displayVisible
+            if (generation != visualReadyGeneration || evalSerial != optionsEvaluationSerial
+                    || browser != view || !displayVisible
                     || isFinishing() || isDestroyed()) return;
             optionsEvaluationPending = false;
             TimedDisplayOptions.Result result = TimedDisplayOptions.parse(raw);
@@ -1310,6 +1336,7 @@ public final class MainActivity extends Activity {
         navigationTrace = null;
         earlyProbePending = false;
         optionsEvaluationPending = false;
+        optionsEvaluationSerial++;
         invalidateVisualReady();
         WebView old = browser;
         browser = null;
