@@ -931,9 +931,16 @@ public final class MainActivity extends Activity {
                     "error", SystemClock.elapsedRealtime()));
             startupTimings = null;
         }
-        // Release a prewarmed but unverified renderer immediately. A retry
-        // will start the guarded network probe and create a fresh WebView.
-        destroyBrowser();
+        // WebViewClient may call us from one of the renderer callbacks.
+        // Never destroy that same WebView synchronously inside its callback:
+        // defer cleanup by one UI message, and only destroy the failed view.
+        // A retry will use a fresh origin-restricted WebView.
+        final WebView failed = browser;
+        if (failed != null) {
+            handler.post(() -> {
+                if (!displayVisible && browser == failed) destroyBrowser();
+            });
+        }
         updateWakeFlag();
         new AlertDialog.Builder(this)
                 .setTitle(title)
