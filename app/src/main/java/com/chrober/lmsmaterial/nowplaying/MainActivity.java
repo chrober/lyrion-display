@@ -746,7 +746,8 @@ public final class MainActivity extends Activity {
 
         destroyBrowser();
         activeUrl = nextUrl;
-        startupTimings = new StartupTimings(SystemClock.elapsedRealtime());
+        startupTimings = new StartupTimings(SystemClock.elapsedRealtime(),
+                experimentalPreRasterEnabled());
         // Cold starts and server-origin changes still use the verified probe.
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
