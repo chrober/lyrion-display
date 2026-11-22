@@ -1,0 +1,195 @@
+name: QA - Java 25 vs published v0.3.0 (no publishing)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/qa-fdroid-java25.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: java25-qa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-java25:
+    name: Java 25 exact-release source-build experiment (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install local QA-only metadata and APK inspection tools
+        run: python3 -m pip install --disable-pip-version-check PyYAML 'apksigcopier==1.1.1'
+      - name: Validate production Java 17 recipe remains disabled and extract pinned release
+        id: pinned
+        shell: bash
+        run: |
+          python3 tools/check_fdroid_recipe.py
+          python3 - <<'PY'
+          import os
+          import yaml
+          from pathlib import Path
+          with Path("fdroid/metadata/com.chrober.lmsmaterial.nowplaying.yml").open(encoding="utf-8") as f:
+              recipe = yaml.safe_load(f)
+          b = recipe["Builds"][0]
+          assert b.get("disable"), "Published recipe must remain disabled"
+          assert b["versionName"] == "0.3.0" and b["versionCode"] == 9
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"source_sha={b['commit']}\n")
+              f.write(f"version_name={b['versionName']}\n")
+              f.write(f"version_code={b['versionCode']}\n")
+          PY
+      - name: Prepare independent source clone and F-Droid tools
+        env:
+          SOURCE_SHA: ${{ steps.pinned.outputs.source_sha }}
+        shell: bash
+        run: |
+          mkdir -p fdroid/build
+          git clone --quiet --no-checkout https://github.com/chrober/lyrion-display.git fdroid/build/com.chrober.lmsmaterial.nowplaying
+          git -C fdroid/build/com.chrober.lmsmaterial.nowplaying checkout --quiet "$SOURCE_SHA"
+          test "$(git -C fdroid/build/com.chrober.lmsmaterial.nowplaying rev-parse HEAD)" = "$SOURCE_SHA"
+          git clone --quiet --depth=1 https://gitlab.com/fdroid/fdroidserver.git fdroidserver
+          git -C fdroidserver rev-parse HEAD | tee fdroidserver-tool-revision.txt
+          chmod -R a+rX fdroidserver
+      - name: Prepare isolated QA-only Java 25 recipe override
+        shell: bash
+        run: |
+          # Only edit the disposable GitHub runner checkout, not the repository.
+          # Record exactly what changed for the experiment; the real recipe
+          # remains pinned to Java 17, disabled, and unsubmitted.
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          p = Path("fdroid/metadata/com.chrober.lmsmaterial.nowplaying.yml")
+          obj = yaml.safe_load(p.read_text(encoding="utf-8"))
+          build = obj["Builds"][0]
+          assert build["disable"]
+          # Do not let fdroidserver perform the release-signature comparison
+          # inside the build command: it aborts the test and hides the built
+          # APK when Java 25 changes classes.dex. We compare explicitly after
+          # confirming that the Java 25 unsigned source build succeeded.
+          # Only the ephemeral QA copy is altered; production metadata stays
+          # unchanged, including the upstream Binaries/signing settings.
+          obj.pop("Binaries", None)
+          obj.pop("AllowedAPKSigningKeys", None)
+          build["sudo"] = [
+              "apt-get update",
+              "apt-get install -y openjdk-25-jdk-headless",
+              "update-java-alternatives -a",
+          ]
+          build["prebuild"] = [
+              'echo "org.gradle.java.home=/usr/lib/jvm/java-25-openjdk-amd64" >> ../gradle.properties',
+          ]
+          p.write_text(yaml.safe_dump(obj, sort_keys=False, allow_unicode=True), encoding="utf-8")
+          assert yaml.safe_load(p.read_text(encoding="utf-8"))["Builds"][0]["disable"]
+          Path("fdroid/qa-java25-sudo.sh").write_text(
+              "#!/bin/bash\nset -euo pipefail\n" + "\n".join(build["sudo"]) +
+              "\ntest -x /usr/lib/jvm/java-25-openjdk-amd64/bin/java\n"
+              "/usr/lib/jvm/java-25-openjdk-amd64/bin/java -version\n",
+              encoding="utf-8",
+          )
+          PY
+          cat > fdroid/qa-java25-build.sh <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          . /etc/profile.d/bsenv.sh
+          export PATH="$fdroidserver:$PATH" PYTHONPATH="$fdroidserver"
+          export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+          export PATH="$JAVA_HOME/bin:$PATH"
+          git config --global --add safe.directory /home/vagrant/fdroidserver
+          git config --global --add safe.directory /build/build/com.chrober.lmsmaterial.nowplaying
+          echo "JDK used to launch F-Droid and Gradle:"
+          java -version
+          fdroid readmeta
+          fdroid lint com.chrober.lmsmaterial.nowplaying
+          fdroid build --test --force --verbose com.chrober.lmsmaterial.nowplaying 2>&1 | tee qa-java25-build.log
+          test -s "tmp/com.chrober.lmsmaterial.nowplaying_${VERSION_CODE}.apk"
+          if grep -Eq '[1-9][0-9]* build(s)? failed' qa-java25-build.log; then exit 1; fi
+          SH
+          chmod -R a+rwX fdroid
+      - name: Source-build exact v0.3.0 with Debian Java 25 in F-Droid Trixie CI container
+        env:
+          VERSION_CODE: ${{ steps.pinned.outputs.version_code }}
+        shell: bash
+        run: |
+          # This tests a *temporary* Java 25 override, NOT the production
+          # recipe. The build and environment are disposable; no signing keys.
+          docker run --rm --user root --entrypoint /bin/bash \
+            -v "$GITHUB_WORKSPACE/fdroid:/build" -w /build \
+            -v "$GITHUB_WORKSPACE/fdroidserver:/home/vagrant/fdroidserver:ro" \
+            -e VERSION_CODE="$VERSION_CODE" \
+            registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie \
+            -e -u -o pipefail -c '
+              bash /build/qa-java25-sudo.sh 2>&1 | tee /build/qa-java25-setup.log
+              runuser -u vagrant -- env HOME=/home/vagrant VERSION_CODE="$VERSION_CODE" \
+                /bin/bash /build/qa-java25-build.sh
+            '
+      - name: Compare Java 25 output with published v0.3.0 signed APK (read-only download)
+        env:
+          VERSION_NAME: ${{ steps.pinned.outputs.version_name }}
+          VERSION_CODE: ${{ steps.pinned.outputs.version_code }}
+        shell: bash
+        run: |
+          signed="lyrion-display-v$VERSION_NAME.apk"
+          url="https://github.com/chrober/lyrion-display/releases/download/v$VERSION_NAME/$signed"
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors -o "$signed" "$url"
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors -o "$signed.sha256" "$url.sha256"
+          sha256sum -c "$signed.sha256"
+          sdkmanager_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$sdkmanager_bin"
+          "$sdkmanager_bin" --install 'build-tools;34.0.0'
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$signed" | tee qa-java25-signed-cert.txt
+          grep -Fq 'Signer #1 certificate SHA-256 digest: af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb' qa-java25-signed-cert.txt
+          unsigned="fdroid/tmp/com.chrober.lmsmaterial.nowplaying_$VERSION_CODE.apk"
+          sha256sum "$unsigned" | tee qa-java25-unsigned-sha256.txt
+          python3 - "$signed" "$unsigned" <<'PY' | tee qa-java25-apk-diff.txt
+          import hashlib, sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as old, zipfile.ZipFile(sys.argv[2]) as new:
+              a, b = set(old.namelist()), set(new.namelist())
+              changed = [n for n in sorted(a & b) if old.read(n) != new.read(n)]
+              print("Extra entries in signed original:", sorted(a-b))
+              print("Extra entries in Java 25 output:", sorted(b-a))
+              print("Differing content entries:", len(changed))
+              for name in changed:
+                  print(name, "original="+hashlib.sha256(old.read(name)).hexdigest(),
+                        "java25="+hashlib.sha256(new.read(name)).hexdigest())
+          PY
+          export PATH="$ANDROID_HOME/build-tools/34.0.0:$PATH"
+          if apksigcopier compare --unsigned "$signed" "$unsigned" >qa-java25-compare.log 2>&1; then
+            echo "REPRODUCIBLE=true" | tee qa-java25-result.txt
+            echo "### Java 25: APK is reproducible vs published v0.3.0" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # A mismatch is a valid result of this *experiment*. The job
+            # succeeds only because it completed a source build and reported
+            # the mismatch unambiguously; it does not certify reproducibility.
+            cat qa-java25-compare.log
+            echo "REPRODUCIBLE=false" | tee qa-java25-result.txt
+            echo "### Java 25: APK does NOT match published v0.3.0" >> "$GITHUB_STEP_SUMMARY"
+            echo "Java 17 must remain in the disabled production recipe for v0.3.0." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cat qa-java25-result.txt
+      - name: Upload experiment logs only (never APKs)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fdroid-java25-v030-qa-evidence
+          path: |
+            fdroid/qa-java25-setup.log
+            fdroid/qa-java25-build.log
+            fdroidserver-tool-revision.txt
+            qa-java25-signed-cert.txt
+            qa-java25-unsigned-sha256.txt
+            qa-java25-apk-diff.txt
+            qa-java25-compare.log
+            qa-java25-result.txt
+          if-no-files-found: ignore
+          retention-days: 14

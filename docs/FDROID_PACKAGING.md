@@ -162,6 +162,20 @@ unprivileged compilation because local `--test` does not run privileged
 steps automatically. It is not a production `--on-server` build or
 an F-Droid team review; those remain approval gates.
 
+## Java 25 experiment for the published v0.3.0
+
+On 22 Nov 2026, a controlled build in F-Droid Trixie using **Debian OpenJDK
+25.0.5.1** and the exact v0.3.0 source **succeeded**, but did **not**
+reproduce the already-published developer-signed APK: only `classes.dex`
+differed, and `apksigcopier` correctly rejected the comparison. Java 25
+therefore does **not** replace Java 17 in the disabled v0.3.0 recipe.
+See [Java 25 experiment and evidence](FDROID_JAVA25_EXPERIMENT.md).
+
+Java 25 can be evaluated for a **future release**, provided both the newly
+published upstream APK and the F-Droid source build use matching toolchains
+and pass a fresh signature comparison. No release has been changed or
+published by this experiment.
+
 ## Build expectations
 
 - `gradle/wrapper/gradle-wrapper.properties` pins Gradle **9.9.1** for F-Droid's
