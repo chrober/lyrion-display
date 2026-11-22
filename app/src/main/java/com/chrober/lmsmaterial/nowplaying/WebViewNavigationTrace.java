@@ -26,8 +26,17 @@ final class WebViewNavigationTrace {
     private int pagesStarted;
     private int optionsAttempts;
     private int optionReloads;
+    private boolean earlyMode;
+    private int earlyProbes;
+    private long earlyCandidateMs = -1;
+    private String readySource = "none";
 
     void navigationStarted(long ms) { navigationStartedMs = ms; }
+
+    void earlyMode(boolean enabled) { earlyMode = enabled; }
+    void earlyProbe() { earlyProbes++; }
+    void earlyCandidate(long now) { earlyCandidateMs = now; }
+    void readySource(boolean early) { readySource = early ? "early" : "finished"; }
 
     void pageStarted(long ms, boolean stub) {
         pagesStarted++;
@@ -42,6 +51,8 @@ final class WebViewNavigationTrace {
             commitProbeAppPresent = -1;
             commitProbeControlsPresent = -1;
             commitProbeAfterFinish = -1;
+            earlyCandidateMs = -1;
+            readySource = "none";
         }
     }
 
@@ -86,6 +97,10 @@ final class WebViewNavigationTrace {
 
     String report(String outcome, long now) {
         return "phase=native outcome=" + outcome
+                + " early_mode=" + (earlyMode ? "on" : "off")
+                + " early_probes=" + earlyProbes
+                + " early_candidate_ms=" + elapsed(navigationStartedMs, earlyCandidateMs)
+                + " ready_source=" + readySource
                 + " page_count=" + pagesStarted
                 + " first_page_start_ms=" + elapsed(navigationStartedMs, firstPageStartedMs)
                 + " np_stub_ms=" + elapsed(firstPageStartedMs, stubFinishedMs)
