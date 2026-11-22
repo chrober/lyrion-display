@@ -1,7 +1,6 @@
 package com.chrober.lmsmaterial.nowplaying;
 
 import org.json.JSONArray;
-import org.json.JSONException;
 
 /**
  * Passive WebView Performance API snapshot. The injected script never sends
@@ -85,7 +84,7 @@ final class WebViewPagePerformance {
                 report.append(' ').append(FIELDS[i]).append('=').append((long) n);
             }
             return report.toString();
-        } catch (JSONException | RuntimeException invalid) {
+        } catch (Exception invalid) {
             return "phase=page_perf state=unavailable";
         }
     }
