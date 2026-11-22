@@ -113,6 +113,7 @@ public final class MainActivity extends Activity {
     private long optionsEvaluationSerial;
     private boolean earlyPageFinished;
     private boolean earlyProbePending;
+    private long earlyProbeSerial;
     private int earlyProbeAttempts;
     private int earlyConsecutivePasses;
     private ImageButton gearButton;
@@ -200,6 +201,7 @@ public final class MainActivity extends Activity {
         optionsEvaluationPending = false;
         optionsEvaluationSerial++;
         earlyProbePending = false;
+        earlyProbeSerial++;
         invalidateVisualReady();
         handler.removeCallbacksAndMessages(null);
         destroyBrowser();
@@ -249,6 +251,7 @@ public final class MainActivity extends Activity {
         optionsEvaluationPending = false;
         optionsEvaluationSerial++;
         earlyProbePending = false;
+        earlyProbeSerial++;
         updateWakeFlag();
         setFullscreen(false);
         getWindow().setStatusBarColor(BG);
@@ -871,22 +874,38 @@ public final class MainActivity extends Activity {
                 return !ServerAddress.isAllowedMaterialNavigation(trustedServer, url);
             }
             @Override public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (browser == view && displayVisible) {
-                    invalidateVisualReady();
-                    earlyPageFinished = false;
-                    earlyProbePending = false;
-                    earlyProbeAttempts = 0;
-                    earlyConsecutivePasses = 0;
-                    optionsEvaluationPending = false;
-                    optionsEvaluationSerial++;
-                    if (navigationTrace != null)
-                        navigationTrace.pageStarted(SystemClock.elapsedRealtime(),
-                                isNowPlayingStub(url));
-                }
-                if (browser == view && displayVisible
-                        && !ServerAddress.isAllowedMaterialNavigation(trustedServer, url)) {
+                if (browser != view || !displayVisible) return;
+                invalidateVisualReady();
+                earlyPageFinished = false;
+                earlyProbePending = false;
+                earlyProbeSerial++;
+                earlyProbeAttempts = 0;
+                earlyConsecutivePasses = 0;
+                optionsEvaluationPending = false;
+                optionsEvaluationSerial++;
+
+                boolean stub = isNowPlayingStub(url);
+                boolean trusted = ServerAddress.isAllowedMaterialNavigation(
+                        trustedServer, url);
+                if (navigationTrace != null)
+                    navigationTrace.pageStarted(SystemClock.elapsedRealtime(), stub);
+
+                if (!trusted) {
                     view.stopLoading();
                     connectionFailed("Blocked navigation outside this Lyrion server.");
+                    return;
+                }
+                // A committed frame is NOT an application-ready signal and on
+                // the physical Fire TV often arrives after onPageFinished.
+                // Start bounded, passive checks at the *real* page's start.
+                // Only allow this experiment on a fresh, guarded cold start:
+                // a reused WebView could still be displaying the old player
+                // document when onPageStarted fires for a new navigation.
+                if (!stub && experimentalEarlyReadinessEnabled()
+                        && startupTimings != null && navigationTrace != null) {
+                    final long generation = visualReadyGeneration;
+                    handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
+                            EARLY_PROBE_INITIAL_DELAY_MS);
                 }
             }
             @android.annotation.TargetApi(23)
@@ -907,12 +926,8 @@ public final class MainActivity extends Activity {
                         trace.commitProbeCompleted(SystemClock.elapsedRealtime(),
                                 WebViewCommitProbe.parse(raw));
                 });
-                if (experimentalEarlyReadinessEnabled() && !earlyPageFinished
-                        && ServerAddress.isAllowedMaterialNavigation(trustedServer, url)) {
-                    final long generation = visualReadyGeneration;
-                    handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
-                            EARLY_PROBE_INITIAL_DELAY_MS);
-                }
+                // Still record onPageCommitVisible for diagnostics only;
+                // the experiment no longer depends on this late callback.
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (browser != view || !displayVisible) return;
@@ -926,6 +941,8 @@ public final class MainActivity extends Activity {
                     navigationTrace.pageFinished(SystemClock.elapsedRealtime(), stub);
                 if (stub) return;
                 earlyPageFinished = true;
+                earlyProbePending = false;
+                earlyProbeSerial++; // Any scheduled early reply is now stale.
                 // Always retain the original onPageFinished fallback. An early
                 // gate may still be pending, but it cannot reveal an unfinished
                 // document once this path has taken over.
@@ -1044,21 +1061,45 @@ public final class MainActivity extends Activity {
                 || earlyProbeAttempts >= EarlyNowPlayingProbe.MAX_ATTEMPTS) return;
 
         earlyProbeAttempts++;
-        if (navigationTrace != null) navigationTrace.earlyProbe();
+        final long serial = ++earlyProbeSerial;
+        final WebViewNavigationTrace trace = navigationTrace;
+        if (trace != null) trace.earlyProbeStarted(SystemClock.elapsedRealtime());
         earlyProbePending = true;
+
+        // A callback queued during navigation may never arrive on Fire OS.
+        // This timer only invalidates a read-only probe; no duplicate script
+        // mutation or visual-ready callback can result from a late reply.
+        handler.postDelayed(() -> {
+            if (serial != earlyProbeSerial || generation != visualReadyGeneration
+                    || browser != view || !displayVisible || !earlyProbePending
+                    || earlyPageFinished || visualReadyPending || browserReady
+                    || isFinishing() || isDestroyed()) return;
+            earlyProbePending = false;
+            earlyProbeSerial++;
+            earlyConsecutivePasses = 0;
+            if (trace != null && navigationTrace == trace)
+                trace.earlyProbeTimedOut();
+            if (earlyProbeAttempts < EarlyNowPlayingProbe.MAX_ATTEMPTS)
+                handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
+                        EarlyNowPlayingProbe.RETRY_DELAY_MS);
+        }, EarlyNowPlayingProbe.PROBE_CALLBACK_TIMEOUT_MS);
+
         view.evaluateJavascript(EarlyNowPlayingProbe.javascript(), raw -> {
-            if (generation != visualReadyGeneration || browser != view || !displayVisible
+            if (serial != earlyProbeSerial || generation != visualReadyGeneration
+                    || browser != view || !displayVisible
                     || isFinishing() || isDestroyed()) return;
             earlyProbePending = false;
             if (earlyPageFinished || visualReadyPending || browserReady
                     || optionsEvaluationPending) return;
 
             EarlyNowPlayingProbe.Result result = EarlyNowPlayingProbe.parse(raw);
+            if (trace != null && navigationTrace == trace)
+                trace.earlyProbeReplied(SystemClock.elapsedRealtime(), result);
             earlyConsecutivePasses = result.qualified()
                     ? earlyConsecutivePasses + 1 : 0;
             if (earlyConsecutivePasses >= EarlyNowPlayingProbe.REQUIRED_CONSECUTIVE_PASSES) {
-                if (navigationTrace != null)
-                    navigationTrace.earlyCandidate(SystemClock.elapsedRealtime());
+                if (trace != null && navigationTrace == trace)
+                    trace.earlyCandidate(SystemClock.elapsedRealtime());
                 verifyMaterialDisplay(view, loading, 4, true);
             } else if (earlyProbeAttempts < EarlyNowPlayingProbe.MAX_ATTEMPTS) {
                 handler.postDelayed(() -> tryEarlyNowPlaying(view, loading, generation),
@@ -1335,6 +1376,7 @@ public final class MainActivity extends Activity {
     private void destroyBrowser() {
         navigationTrace = null;
         earlyProbePending = false;
+        earlyProbeSerial++;
         optionsEvaluationPending = false;
         optionsEvaluationSerial++;
         invalidateVisualReady();
