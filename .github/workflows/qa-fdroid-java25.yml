@@ -73,6 +73,14 @@ jobs:
           obj = yaml.safe_load(p.read_text(encoding="utf-8"))
           build = obj["Builds"][0]
           assert build["disable"]
+          # Do not let fdroidserver perform the release-signature comparison
+          # inside the build command: it aborts the test and hides the built
+          # APK when Java 25 changes classes.dex. We compare explicitly after
+          # confirming that the Java 25 unsigned source build succeeded.
+          # Only the ephemeral QA copy is altered; production metadata stays
+          # unchanged, including the upstream Binaries/signing settings.
+          obj.pop("Binaries", None)
+          obj.pop("AllowedAPKSigningKeys", None)
           build["sudo"] = [
               "apt-get update",
               "apt-get install -y openjdk-25-jdk-headless",
