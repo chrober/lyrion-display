@@ -174,6 +174,12 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        // Invalidate callbacks from discovery, JSON-RPC and the Material probe.
+        // A late callback must never show a dialog on a destroyed Activity.
+        requestSerial++;
+        displayVisible = false;
+        themeCatalogPending = "";
+        startupTimings = null;
         handler.removeCallbacksAndMessages(null);
         destroyBrowser();
         super.onDestroy();
@@ -270,7 +276,8 @@ public final class MainActivity extends Activity {
             discoveryButton.setText("Searching the local network…");
             final EditText currentInput = serverInput;
             LyrionDiscovery.discover(this, servers -> {
-                if (isFinishing() || displayVisible || serverInput != currentInput) return;
+                if (isFinishing() || isDestroyed() || displayVisible
+                        || serverInput != currentInput) return;
                 discoveryButton.setEnabled(true);
                 discoveryButton.setText("Find Lyrion servers");
                 if (servers.isEmpty()) {
@@ -510,7 +517,8 @@ public final class MainActivity extends Activity {
         if (server.equals(themeCatalogServer) || server.equals(themeCatalogPending)) return;
         themeCatalogPending = server;
         MaterialSkinCatalog.fetch(server, result -> {
-            if (!server.equals(themeCatalogPending) || isFinishing()) return;
+            if (!server.equals(themeCatalogPending) || isFinishing() || isDestroyed())
+                return;
             themeCatalogPending = "";
             themeCatalogServer = server;
             themeOptions.clear();
@@ -614,8 +622,8 @@ public final class MainActivity extends Activity {
         playerStatus.setText("Loading players…");
         final EditText currentInput = serverInput;
         LyrionPlayers.fetch(server, (players, error) -> {
-            if (isFinishing() || displayVisible || serial != requestSerial
-                    || serverInput != currentInput) return;
+            if (isFinishing() || isDestroyed() || displayVisible
+                    || serial != requestSerial || serverInput != currentInput) return;
             if (error != null) {
                 playerStatus.setText("Player lookup failed: " + error);
                 return;
