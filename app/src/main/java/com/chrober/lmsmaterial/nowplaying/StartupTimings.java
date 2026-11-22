@@ -9,6 +9,7 @@ package com.chrober.lmsmaterial.nowplaying;
  */
 final class StartupTimings {
     private final long startedMs;
+    private final boolean offscreenPreRaster;
     private long probeStartedMs = -1;
     private long probeFinishedMs = -1;
     private long webViewStartedMs = -1;
@@ -19,7 +20,12 @@ final class StartupTimings {
     private String visualState = "none";
 
     StartupTimings(long startedMs) {
+        this(startedMs, false);
+    }
+
+    StartupTimings(long startedMs, boolean offscreenPreRaster) {
         this.startedMs = startedMs;
+        this.offscreenPreRaster = offscreenPreRaster;
     }
 
     void probeStarted(long nowMs) { probeStartedMs = nowMs; }
@@ -41,7 +47,8 @@ final class StartupTimings {
                 + " post_probe_ms=" + delta(probeFinishedMs, nowMs)
                 + " navigation_to_ready_ms=" + delta(navigationStartedMs, nowMs)
                 + " dom_to_visual_ms=" + delta(domReadyMs, visualReadyMs)
-                + " visual_state=" + visualState;
+                + " visual_state=" + visualState
+                + " preraster=" + (offscreenPreRaster ? "on" : "off");
     }
 
     private static long delta(long first, long last) {
