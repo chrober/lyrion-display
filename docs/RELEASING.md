@@ -4,7 +4,7 @@
 
 A release is published when a tag beginning with `v` is pushed (for example `v0.1.0`). For GitHub-only publication without a local tag push, a push to `publish/vX.Y.Z` also builds the signed APK and creates the matching tag and GitHub Release. Both routes require the tag to match `versionName` in `app/build.gradle`.
 
-The previously published `v0.2.0` must not be rebuilt or retagged. For v0.3.0 use `versionCode` **9** and preserve the Android application ID and production signing credentials. The v0.3.0 candidate must pass the [device acceptance checklist](V0.3.0-ACCEPTANCE.md) before publication.
+Previously published versions **v0.2.0 and v0.3.0 must not be rebuilt or retagged**. The next planned version, **v0.4.0**, uses `versionCode` **10**, Java **25** for the build tools, the same Android application ID and **the existing production signing certificate**. It must pass API 25 / API 29 emulator tests, byte-for-byte F-Droid Java 25 source reproducibility and [physical Fire TV Stick 4K (Fire OS 6) acceptance](V0.4.0-RELEASE-CANDIDATE.md) **before publication**. The new [signed RC workflow](../.github/workflows/release-candidate.yml) produces an Actions QA artifact without publishing a GitHub Release or submitting to F-Droid.
 
 ## 1. Create and safeguard your release keystore
 
