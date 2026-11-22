@@ -368,7 +368,7 @@ public final class MainActivity extends Activity {
             // A reused WebView need not reload. The visibility experiment
             // applies from the next page navigation or cold connection.
             if (browser != null && Build.VERSION.SDK_INT >= 23)
-                browser.getSettings().setOffscreenPreRaster(checked);
+                WebViewApi23.setOffscreenPreRaster(browser, checked);
         });
         add(content, prerasterCheckbox, 6, 4);
         add(content, label(WebViewReadinessPolicy.supportsVisualState(Build.VERSION.SDK_INT)
@@ -809,7 +809,7 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
         if (Build.VERSION.SDK_INT >= 23)
-            settings.setOffscreenPreRaster(experimentalPreRasterEnabled());
+            WebViewApi23.setOffscreenPreRaster(browser, experimentalPreRasterEnabled());
         // Keep the opaque native loading view *above* the WebView until the
         // actual Material Skin page is verified. No raw HTTP error is exposed.
         root.addView(browser, 0, new FrameLayout.LayoutParams(-1, -1));
@@ -962,11 +962,9 @@ public final class MainActivity extends Activity {
         // as a confirmed visual-state commit.
         handler.postDelayed(() -> completeVisualReady(
                 view, loading, generation, "timeout"), VISUAL_READY_TIMEOUT_MS);
-        view.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
-            @Override public void onComplete(long requestId) {
-                if (requestId == generation)
-                    completeVisualReady(view, loading, generation, "callback");
-            }
+        WebViewApi23.requestVisualState(view, generation, requestId -> {
+            if (requestId == generation)
+                completeVisualReady(view, loading, generation, "callback");
         });
     }
 
