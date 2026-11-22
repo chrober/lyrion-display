@@ -945,7 +945,7 @@ public final class MainActivity extends Activity {
                     || isFinishing() || isDestroyed()) return;
             if (trace != null && navigationTrace == trace)
                 trace.optionsEvaluationFinished(SystemClock.elapsedRealtime(),
-                        "\"\\\"reload\\\"\"".equals(result));
+                        "\\\"reload\\\"".equals(result));
             if ("\"reload\"".equals(result)) return;
             if ("\"ready\"".equals(result)) {
                 appliedOptionsScript = javascript;
