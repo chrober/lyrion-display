@@ -19,7 +19,9 @@ public final class EarlyNowPlayingProbeTest {
         assertFalse(EarlyNowPlayingProbe.parse(encode(1, 1, 1, 0)).qualified());
         assertFalse(EarlyNowPlayingProbe.parse(encode(0, 1, 1, 1)).qualified());
         assertEquals(2, EarlyNowPlayingProbe.REQUIRED_CONSECUTIVE_PASSES);
-        assertTrue(EarlyNowPlayingProbe.MAX_ATTEMPTS > 2);
+        assertTrue(EarlyNowPlayingProbe.MAX_ATTEMPTS >= 16);
+        assertTrue(EarlyNowPlayingProbe.PROBE_CALLBACK_TIMEOUT_MS >= 400);
+        assertTrue(EarlyNowPlayingProbe.RETRY_DELAY_MS > 0);
     }
 
     @Test public void isOffByDefaultAndUnsupportedOnAndroidApi22() {
