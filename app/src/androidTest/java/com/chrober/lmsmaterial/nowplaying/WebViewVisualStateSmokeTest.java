@@ -44,8 +44,8 @@ public final class WebViewVisualStateSmokeTest {
                 view.setTag("webview-visual-qa");
                 view.setVisibility(View.INVISIBLE);
                 if (Build.VERSION.SDK_INT >= 23) {
-                    view.getSettings().setOffscreenPreRaster(true);
-                    assertTrue(view.getSettings().getOffscreenPreRaster());
+                    WebViewApi23.setOffscreenPreRaster(view, true);
+                    assertTrue(WebViewApi23.isOffscreenPreRaster(view));
                 } else {
                     assertFalse(WebViewReadinessPolicy.supportsVisualState(
                             Build.VERSION.SDK_INT));
@@ -54,14 +54,11 @@ public final class WebViewVisualStateSmokeTest {
                 view.setWebViewClient(new WebViewClient() {
                     @Override public void onPageFinished(WebView page, String url) {
                         if (Build.VERSION.SDK_INT >= 23) {
-                            page.postVisualStateCallback(42L,
-                                    new WebView.VisualStateCallback() {
-                                        @Override public void onComplete(long requestId) {
-                                            assertEquals(42L, requestId);
-                                            page.setVisibility(View.VISIBLE);
-                                            shown.countDown();
-                                        }
-                                    });
+                            WebViewApi23.requestVisualState(page, 42L, requestId -> {
+                                assertEquals(42L, requestId);
+                                page.setVisibility(View.VISIBLE);
+                                shown.countDown();
+                            });
                         } else {
                             // Ensure the API 22 fallback never invokes API 23.
                             page.setVisibility(View.VISIBLE);
