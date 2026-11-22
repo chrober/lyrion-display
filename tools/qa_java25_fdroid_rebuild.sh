@@ -21,17 +21,27 @@ grep -Fq 'disable:' "$GITHUB_WORKSPACE/fdroid/metadata/com.chrober.lmsmaterial.n
 
 qa="$(mktemp -d)"
 fdroidserver_dir="$qa-fdroidserver"
-trap 'rm -rf "$qa" "$fdroidserver_dir"' EXIT
+trap 'sudo rm -rf -- "$qa" "$fdroidserver_dir"' EXIT
 chmod 755 "$qa"
 mkdir -p "$qa/metadata" "$qa/build" "$qa/tmp"
 # The repository declares its custom F-Droid categories in config/categories.yml;
 # without this the independent fdroid lint cannot resolve "Multimedia".
 cp -R "$GITHUB_WORKSPACE/fdroid/config" "$qa/config"
 
-# Clone exactly the checked out revision, including synthetic PR merge commits.
-git clone --quiet --no-checkout "$GITHUB_WORKSPACE" "$qa/build/com.chrober.lmsmaterial.nowplaying"
-git -C "$qa/build/com.chrober.lmsmaterial.nowplaying" checkout --quiet "$GITHUB_SHA"
-test "$(git -C "$qa/build/com.chrober.lmsmaterial.nowplaying" rev-parse HEAD)" = "$GITHUB_SHA"
+# The repository URL MUST match metadata Repo or fdroidserver deletes the
+# clone and fetches a new one, losing the exact PR commit. Fetch the synthetic
+# PR merge ref explicitly when it is not already on the default branch.
+source_checkout="$qa/build/com.chrober.lmsmaterial.nowplaying"
+git clone --quiet --no-checkout https://github.com/chrober/lyrion-display.git "$source_checkout"
+if ! git -C "$source_checkout" cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null; then
+  if [[ "$GITHUB_REF" =~ ^refs/pull/[0-9]+/merge$ ]]; then
+    git -C "$source_checkout" fetch --quiet origin "$GITHUB_REF"
+  else
+    git -C "$source_checkout" fetch --quiet origin "$GITHUB_SHA"
+  fi
+fi
+git -C "$source_checkout" checkout --quiet "$GITHUB_SHA"
+test "$(git -C "$source_checkout" rev-parse HEAD)" = "$GITHUB_SHA"
 
 # F-Droid metadata is TEMPORARY and not committed/submitted/published.
 # The v0.3.0 recipe and its Java 17 configuration are never modified.
