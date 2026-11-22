@@ -1,0 +1,133 @@
+name: Build signed v0.4.0 release candidate (NO PUBLICATION)
+
+# A push to the exact RC branch creates a private GitHub Actions artifact.
+# It never creates/pushes tags, GitHub Releases, F-Droid requests or packages.
+on:
+  push:
+    branches:
+      - rc/v0.4.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v040-signed-rc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    # Prevent non-RC refs, forks and ordinary PRs from accessing signing keys.
+    if: github.repository == 'chrober/lyrion-display' && github.ref == 'refs/heads/rc/v0.4.0'
+    name: Reproduce, production-sign, and store APK as QA artifact only
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install Android SDK and pinned signing tools
+        shell: bash
+        run: |
+          sdkmanager_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$sdkmanager_bin"
+          "$sdkmanager_bin" --install 'platforms;android-35' 'build-tools;35.0.0' 'build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.9.1'
+          cache-provider: basic
+      - name: Enforce exact RC version, Fire TV minimum SDK, identity and disabled historical F-Droid recipe
+        shell: bash
+        run: |
+          java -version
+          grep -Eq "^[[:space:]]*versionName[[:space:]]+'0\.4\.0'" app/build.gradle
+          grep -Eq '^[[:space:]]*versionCode[[:space:]]+10$' app/build.gradle
+          grep -Eq '^[[:space:]]*minSdk[[:space:]]+22$' app/build.gradle
+          grep -Eq '^[[:space:]]*targetSdk[[:space:]]+35$' app/build.gradle
+          grep -Fq "applicationId 'com.chrober.lmsmaterial.nowplaying'" app/build.gradle
+          python3 tools/check_fdroid_recipe.py
+      - name: Android lint, tests and unsigned release build (no secrets)
+        shell: bash
+        run: |
+          test -z "$ANDROID_KEYSTORE_PATH"
+          gradle --no-daemon :app:lintDebug :app:testDebugUnitTest :app:assembleRelease
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+          python3 tools/verify_launcher_assets.py app/build/outputs/apk/release/app-release-unsigned.apk
+          if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify app/build/outputs/apk/release/app-release-unsigned.apk; then
+            echo "::error::RC source build unexpectedly generated a signed APK"
+            exit 1
+          fi
+      - name: Independent F-Droid Trixie Java 25 source-build comparison (no secrets)
+        shell: bash
+        run: bash tools/qa_java25_fdroid_rebuild.sh
+      - name: Check established signing secrets are available
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          test -n "$RELEASE_KEYSTORE"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+      - name: Restore original production signing key (only after reproducibility passed)
+        env:
+          RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          chmod 600 "$RUNNER_TEMP/release.keystore"
+      - name: Install signing verification utility
+        run: python3 -m pip install --disable-pip-version-check 'apksigcopier==1.1.1'
+      - name: Sign exact independently reproducible APK with existing production certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          bash tools/sign_reproducible_apk.sh \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/release/app-release.apk \
+            "$RUNNER_TEMP/release.keystore"
+          python3 tools/verify_launcher_assets.py app/build/outputs/apk/release/app-release.apk
+      - name: Verify API 22 support, upgrade identity and published signing certificate
+        shell: bash
+        run: |
+          signed=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$signed" | tee "$RUNNER_TEMP/rc-badging.txt"
+          grep -Fq "name='com.chrober.lmsmaterial.nowplaying' versionCode='10' versionName='0.4.0'" "$RUNNER_TEMP/rc-badging.txt"
+          grep -Fq "sdkVersion:'22'" "$RUNNER_TEMP/rc-badging.txt"
+          grep -Fq "targetSdkVersion:'35'" "$RUNNER_TEMP/rc-badging.txt"
+          grep -Fq "application-label:'Lyrion Display'" "$RUNNER_TEMP/rc-badging.txt"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs --min-sdk-version 25 "$signed" | tee "$RUNNER_TEMP/rc-cert.txt"
+          grep -Fq 'Signer #1 certificate SHA-256 digest: af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb' "$RUNNER_TEMP/rc-cert.txt"
+          mkdir -p candidate
+          cp "$signed" candidate/lyrion-display-v0.4.0-rc.apk
+          (
+            cd candidate
+            sha256sum lyrion-display-v0.4.0-rc.apk > lyrion-display-v0.4.0-rc.apk.sha256
+          )
+          cp qa-java25-v040-result.txt candidate/
+          echo "### Signed QA candidate prepared; no GitHub/F-Droid release created" >> "$GITHUB_STEP_SUMMARY"
+          echo "Android package com.chrober.lmsmaterial.nowplaying / v0.4.0 (10), minSdk 22, matching original production cert." >> "$GITHUB_STEP_SUMMARY"
+      - name: Store signed candidate only as short-lived Actions artifact (not a Release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: lyrion-display-v0.4.0-signed-rc-FIREOS6-QA-ONLY
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Remove restored signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/release.keystore"
