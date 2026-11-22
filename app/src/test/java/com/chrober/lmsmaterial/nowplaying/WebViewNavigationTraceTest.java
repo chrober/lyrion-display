@@ -32,6 +32,44 @@ public final class WebViewNavigationTraceTest {
         assertFalse(result.contains("192.168."));
     }
 
+    @Test public void separatesCommitToFinishFromActualSynchronousJavascript() {
+        WebViewNavigationTrace trace = new WebViewNavigationTrace();
+        trace.navigationStarted(100);
+        trace.pageStarted(150, false);
+        trace.pageCommitted(200, false);
+        trace.commitProbeCompleted(245, new WebViewCommitProbe.Result(1, 1, 0));
+        trace.pageFinished(900, false);
+        trace.optionsEvaluationStarted(910);
+        // Callback arrives 600 ms later but JS executed in 4.3 ms.
+        trace.optionsEvaluationFinished(1510, false, 4300);
+        String result = trace.report("ready", 1700);
+        assertTrue(result.contains("final_commit_ms=100"));
+        assertTrue(result.contains("commit_to_finish_ms=700"));
+        assertTrue(result.contains("commit_to_first_options_ms=710"));
+        assertTrue(result.contains("commit_probe_callback_ms=45"));
+        assertTrue(result.contains("commit_probe_after_finish=0"));
+        assertTrue(result.contains("commit_doc_state=1"));
+        assertTrue(result.contains("commit_app_present=1"));
+        assertTrue(result.contains("commit_controls_present=0"));
+        assertTrue(result.contains("options_last_eval_ms=600"));
+        assertTrue(result.contains("options_js_exec_us=4300"));
+        assertTrue(result.contains("options_callback_gap_ms=596"));
+    }
+
+    @Test public void missingCommitDoesNotInventAReadinessTimestamp() {
+        WebViewNavigationTrace trace = new WebViewNavigationTrace();
+        trace.navigationStarted(100);
+        trace.pageStarted(120, false);
+        trace.pageFinished(400, false);
+        trace.optionsEvaluationStarted(410);
+        trace.optionsEvaluationFinished(700, false, -1);
+        String result = trace.report("ready", 800);
+        assertTrue(result.contains("final_commit_ms=-1"));
+        assertTrue(result.contains("commit_doc_state=-1"));
+        assertTrue(result.contains("options_js_exec_us=-1"));
+        assertTrue(result.contains("options_callback_gap_ms=-1"));
+    }
+
     @Test public void incompleteAndErrorTraceUsesMissingValueNotInventedDurations() {
         WebViewNavigationTrace trace = new WebViewNavigationTrace();
         trace.navigationStarted(20);

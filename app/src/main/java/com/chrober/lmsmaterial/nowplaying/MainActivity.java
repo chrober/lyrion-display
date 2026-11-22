@@ -846,6 +846,25 @@ public final class MainActivity extends Activity {
                     connectionFailed("Blocked navigation outside this Lyrion server.");
                 }
             }
+            @android.annotation.TargetApi(23)
+            @Override public void onPageCommitVisible(WebView view, String url) {
+                if (Build.VERSION.SDK_INT < 23 || browser != view || !displayVisible
+                        || isNowPlayingStub(url)) return;
+                final WebViewNavigationTrace trace = navigationTrace;
+                if (trace == null) return;
+                trace.pageCommitted(SystemClock.elapsedRealtime(), false);
+                final int pageNumber = trace.currentPageCount();
+                final int serial = requestSerial;
+                // Read-only snapshot. It may be delivered after onPageFinished,
+                // which is recorded separately; we never reveal the display
+                // or apply options early based on this probe.
+                view.evaluateJavascript(WebViewCommitProbe.javascript(), raw -> {
+                    if (browser == view && displayVisible && requestSerial == serial
+                            && navigationTrace == trace && trace.currentPageCount() == pageNumber)
+                        trace.commitProbeCompleted(SystemClock.elapsedRealtime(),
+                                WebViewCommitProbe.parse(raw));
+                });
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 if (browser != view || !displayVisible) return;
                 // Theme/color are set via Material Skin's supported URL parameter.
@@ -940,14 +959,16 @@ public final class MainActivity extends Activity {
         String javascript = displayOptionsScript();
         final WebViewNavigationTrace trace = navigationTrace;
         if (trace != null) trace.optionsEvaluationStarted(SystemClock.elapsedRealtime());
-        view.evaluateJavascript(javascript, result -> {
+        view.evaluateJavascript(TimedDisplayOptions.wrap(javascript), raw -> {
             if (browser != view || !displayVisible || visualReadyPending
                     || isFinishing() || isDestroyed()) return;
+            TimedDisplayOptions.Result result = TimedDisplayOptions.parse(raw);
             if (trace != null && navigationTrace == trace)
                 trace.optionsEvaluationFinished(SystemClock.elapsedRealtime(),
-                        "\"reload\"".equals(result));
-            if ("\"reload\"".equals(result)) return;
-            if ("\"ready\"".equals(result)) {
+                        result.status == TimedDisplayOptions.Status.RELOAD,
+                        result.scriptMicros);
+            if (result.status == TimedDisplayOptions.Status.RELOAD) return;
+            if (result.status == TimedDisplayOptions.Status.READY) {
                 appliedOptionsScript = javascript;
                 if (startupTimings != null)
                     startupTimings.domReady(SystemClock.elapsedRealtime());
