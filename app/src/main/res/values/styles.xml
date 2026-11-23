@@ -3,7 +3,10 @@
     <!-- Pre-Android 12: inherit the platform's light system palette. -->
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <!-- The launch preview is shown before saved Material Skin preferences can be read. -->
+        <!-- Up to Android 11, show the real themed loading view instead of a
+             theme-agnostic Android starting-window flash. Android 12+ defines
+             its own styles and keeps the mandatory system splash screen. -->
+        <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">@color/startup_window_background</item>
     </style>
 </resources>

@@ -1,6 +1,9 @@
 package com.chrober.lmsmaterial.nowplaying;
 
 import android.content.Context;
+import android.content.res.Resources;
+import android.content.res.TypedArray;
+import android.os.Build;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import androidx.test.core.app.ActivityScenario;
@@ -49,6 +52,21 @@ public final class SettingsSmokeTest {
             }
         }
         return null;
+    }
+
+    @Test public void legacyStartingWindowIsDisabledToRevealThemedNativeLoadingView() {
+        if (Build.VERSION.SDK_INT >= 31) return;
+        Resources.Theme launchTheme =
+                ApplicationProvider.getApplicationContext().getResources().newTheme();
+        launchTheme.applyStyle(R.style.AppTheme, true);
+        TypedArray values = launchTheme.obtainStyledAttributes(
+                new int[]{android.R.attr.windowDisablePreview});
+        try {
+            assertTrue("Legacy Android should draw the app's own first frame, "
+                    + "not a separate launch preview", values.getBoolean(0, false));
+        } finally {
+            values.recycle();
+        }
     }
 
     @Test public void activityWindowBackgroundMatchesSavedMaterialTheme() {

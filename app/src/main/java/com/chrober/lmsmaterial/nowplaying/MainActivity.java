@@ -31,6 +31,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
@@ -794,7 +795,7 @@ public final class MainActivity extends Activity {
         // Cold starts and server-origin changes still use the verified probe.
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BG);
-        TextView loading = label("Checking Material Skin…", 18, TEXT, false);
+        TextView loading = label("Connecting to Lyrion…", 18, TEXT, false);
         loading.setGravity(Gravity.CENTER);
         loading.setBackgroundColor(BG);
         root.addView(loading, new FrameLayout.LayoutParams(-1, -1));
@@ -804,31 +805,45 @@ public final class MainActivity extends Activity {
 
         final int serial = requestSerial;
         final StartupTimings timings = startupTimings;
-        // Start network IO first. While its background thread checks Material
-        // Skin, initialize an EMPTY WebView on the UI thread behind the opaque
-        // native loading view. No navigation is allowed until probe success.
-        timings.probeStarted(SystemClock.elapsedRealtime());
-        MaterialSkinProbe.check(activeUrl, result -> {
-            if (serial != requestSerial || !displayVisible || isFinishing() || isDestroyed()
-                    || browser == null || startupTimings != timings)
-                return;
-            timings.probeFinished(SystemClock.elapsedRealtime());
-            if (result.status != MaterialSkinProbe.Status.AVAILABLE) {
-                materialProbeFailed(result);
-                return;
+        // Render one native, preference-themed loading frame *before*
+        // initializing WebView. First WebView construction can stall the UI
+        // thread and otherwise prolong Android's unthemed launch preview.
+        // The posted work runs after this first pre-draw traversal.
+        root.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                root.getViewTreeObserver().removeOnPreDrawListener(this);
+                root.post(() -> {
+                    if (serial != requestSerial || !displayVisible || displayRoot != root
+                            || startupTimings != timings || isFinishing() || isDestroyed())
+                        return;
+                    // Network preflight and empty WebView setup still overlap,
+                    // and navigation remains gated by the trusted probe.
+                    timings.probeStarted(SystemClock.elapsedRealtime());
+                    MaterialSkinProbe.check(activeUrl, result -> {
+                        if (serial != requestSerial || !displayVisible
+                                || isFinishing() || isDestroyed()
+                                || browser == null || startupTimings != timings)
+                            return;
+                        timings.probeFinished(SystemClock.elapsedRealtime());
+                        if (result.status != MaterialSkinProbe.Status.AVAILABLE) {
+                            materialProbeFailed(result);
+                            return;
+                        }
+                        long navigationStart = SystemClock.elapsedRealtime();
+                        timings.navigationStarted(navigationStart);
+                        if (navigationTrace != null) {
+                            navigationTrace.navigationStarted(navigationStart);
+                            navigationTrace.earlyMode(experimentalEarlyReadinessEnabled());
+                        }
+                        browser.loadUrl(activeUrl);
+                    });
+                    timings.webViewStarted(SystemClock.elapsedRealtime());
+                    prepareNowPlayingWebView(root, loading);
+                    timings.webViewPrepared(SystemClock.elapsedRealtime());
+                });
+                return true;
             }
-            loading.setText("Connecting to Lyrion…");
-            long navigationStart = SystemClock.elapsedRealtime();
-            timings.navigationStarted(navigationStart);
-            if (navigationTrace != null) {
-                navigationTrace.navigationStarted(navigationStart);
-                navigationTrace.earlyMode(experimentalEarlyReadinessEnabled());
-            }
-            browser.loadUrl(activeUrl);
         });
-        timings.webViewStarted(SystemClock.elapsedRealtime());
-        prepareNowPlayingWebView(root, loading);
-        timings.webViewPrepared(SystemClock.elapsedRealtime());
     }
 
     private void prepareNowPlayingWebView(FrameLayout root, TextView loading) {
