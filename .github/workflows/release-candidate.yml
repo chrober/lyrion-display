@@ -1,24 +1,24 @@
-name: Build signed v0.4.0 release candidate (NO PUBLICATION)
+name: Build signed release candidate (NO PUBLICATION)
 
-# A push to the exact RC branch creates a private GitHub Actions artifact.
+# Push to a versioned RC branch to create a private GitHub Actions artifact.
 # It never creates/pushes tags, GitHub Releases, F-Droid requests or packages.
 on:
   push:
     branches:
-      - rc/v0.4.0
+      - 'rc/v*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: v040-signed-rc-${{ github.ref }}
+  group: signed-rc-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   candidate:
     # Prevent non-RC refs, forks and ordinary PRs from accessing signing keys.
-    if: github.repository == 'chrober/lyrion-display' && github.ref == 'refs/heads/rc/v0.4.0'
+    if: github.repository == 'chrober/lyrion-display' && startsWith(github.ref, 'refs/heads/rc/v')
     name: Reproduce, production-sign, and store APK as QA artifact only
     runs-on: ubuntu-latest
     timeout-minutes: 75
@@ -41,16 +41,26 @@ jobs:
         with:
           gradle-version: '9.9.1'
           cache-provider: basic
-      - name: Enforce exact RC version, Fire TV minimum SDK, identity and disabled historical F-Droid recipe
+      - name: Enforce exact RC branch version, Fire TV minSdk and signing identity
+        id: rc_version
         shell: bash
         run: |
           java -version
-          grep -Eq "^[[:space:]]*versionName[[:space:]]+'0\.4\.0'" app/build.gradle
-          grep -Eq '^[[:space:]]*versionCode[[:space:]]+10$' app/build.gradle
+          [[ "$GITHUB_REF_NAME" =~ ^rc/v[0-9]+[.][0-9]+[.][0-9]+$ ]] || {
+            echo "::error::RC branch must match rc/vMAJOR.MINOR.PATCH"
+            exit 1
+          }
+          version="${GITHUB_REF_NAME#rc/v}"
+          declared="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+'([^']+)'.*$/\1/p" app/build.gradle)"
+          code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+).*$/\1/p' app/build.gradle)"
+          test "$version" = "$declared"
+          [[ "$code" =~ ^[0-9]+$ ]] && test "$code" -ge 10
           grep -Eq '^[[:space:]]*minSdk[[:space:]]+22$' app/build.gradle
           grep -Eq '^[[:space:]]*targetSdk[[:space:]]+35$' app/build.gradle
           grep -Fq "applicationId 'com.chrober.lmsmaterial.nowplaying'" app/build.gradle
           python3 tools/check_fdroid_recipe.py
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
       - name: Android lint, tests and unsigned release build (no secrets)
         shell: bash
         run: |
@@ -100,28 +110,31 @@ jobs:
           python3 tools/verify_launcher_assets.py app/build/outputs/apk/release/app-release.apk
       - name: Verify API 22 support, upgrade identity and published signing certificate
         shell: bash
+        env:
+          RC_VERSION: ${{ steps.rc_version.outputs.version }}
+          RC_CODE: ${{ steps.rc_version.outputs.code }}
         run: |
           signed=app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$signed" | tee "$RUNNER_TEMP/rc-badging.txt"
-          grep -Fq "name='com.chrober.lmsmaterial.nowplaying' versionCode='10' versionName='0.4.0'" "$RUNNER_TEMP/rc-badging.txt"
+          grep -Fq "name='com.chrober.lmsmaterial.nowplaying' versionCode='$RC_CODE' versionName='$RC_VERSION'" "$RUNNER_TEMP/rc-badging.txt"
           grep -Fq "sdkVersion:'22'" "$RUNNER_TEMP/rc-badging.txt"
           grep -Fq "targetSdkVersion:'35'" "$RUNNER_TEMP/rc-badging.txt"
           grep -Fq "application-label:'Lyrion Display'" "$RUNNER_TEMP/rc-badging.txt"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs --min-sdk-version 25 "$signed" | tee "$RUNNER_TEMP/rc-cert.txt"
           grep -Fq 'Signer #1 certificate SHA-256 digest: af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb' "$RUNNER_TEMP/rc-cert.txt"
           mkdir -p candidate
-          cp "$signed" candidate/lyrion-display-v0.4.0-rc.apk
+          cp "$signed" "candidate/lyrion-display-v${RC_VERSION}-rc.apk"
           (
             cd candidate
-            sha256sum lyrion-display-v0.4.0-rc.apk > lyrion-display-v0.4.0-rc.apk.sha256
+            sha256sum "lyrion-display-v${RC_VERSION}-rc.apk" > "lyrion-display-v${RC_VERSION}-rc.apk.sha256"
           )
           cp qa-fdroid-reproducibility-result.txt candidate/
           echo "### Signed QA candidate prepared; no GitHub/F-Droid release created" >> "$GITHUB_STEP_SUMMARY"
-          echo "Android package com.chrober.lmsmaterial.nowplaying / v0.4.0 (10), minSdk 22, matching original production cert." >> "$GITHUB_STEP_SUMMARY"
+          echo "Android package com.chrober.lmsmaterial.nowplaying / v$RC_VERSION ($RC_CODE), minSdk 22, matching original production cert." >> "$GITHUB_STEP_SUMMARY"
       - name: Store signed candidate only as short-lived Actions artifact (not a Release)
         uses: actions/upload-artifact@v7
         with:
-          name: lyrion-display-v0.4.0-signed-rc-FIREOS6-QA-ONLY
+          name: lyrion-display-v${{ steps.rc_version.outputs.version }}-signed-rc-FIREOS6-QA-ONLY
           path: candidate/
           if-no-files-found: error
           retention-days: 14
