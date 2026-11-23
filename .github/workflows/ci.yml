@@ -96,3 +96,25 @@ jobs:
           name: lyrion-display-debug
           path: app/build/outputs/apk/debug/lyrion-display-debug.apk
           if-no-files-found: error
+
+  repository-cleanup-20261123:
+    name: One-time approved cleanup of obsolete refs and Actions history
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[repository-prune-20261123]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: SHA-validated branch and legacy workflow cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REPOSITORY_CLEANUP: APPROVED-2026-11-23
+        run: python3 .github/scripts/repository_cleanup_once.py
