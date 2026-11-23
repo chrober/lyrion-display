@@ -232,7 +232,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned F-Droid metadata formatter and YAML 1.2 parser
-        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.18,<0.19'
+        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.15,<0.17.22'
       - uses: actions/download-artifact@v7
         with:
           name: fdroid-manual-submission-reviewed-metadata

@@ -45,7 +45,7 @@ jobs:
           python-version: '3.12'
       - name: Test F-Droid submission safety (offline, no GitLab access)
         run: |
-          python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.18,<0.19'
+          python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.15,<0.17.22'
           python3 -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
       - name: Verify classic PNG icon assets
         run: python3 tools/verify_launcher_assets.py
