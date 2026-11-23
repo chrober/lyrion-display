@@ -1,11 +1,13 @@
 package com.chrober.lmsmaterial.nowplaying;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.os.Build;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
@@ -56,31 +58,75 @@ public final class SettingsSmokeTest {
         return null;
     }
 
-    @Test public void legacyLaunchPreviewUsesDefaultLogoInsteadOfBlankScreen() {
-        if (Build.VERSION.SDK_INT >= 31) return;
-        Resources.Theme theme =
-                ApplicationProvider.getApplicationContext().getResources().newTheme();
+    @Test public void splashUsesNativeAndroidBackgroundInLightAndDarkMode() {
+        checkSplashColors(Configuration.UI_MODE_NIGHT_NO);
+        checkSplashColors(Configuration.UI_MODE_NIGHT_YES);
+    }
+
+    private void checkSplashColors(int nightMode) {
+        Context app = ApplicationProvider.getApplicationContext();
+        Configuration config = new Configuration(app.getResources().getConfiguration());
+        config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | nightMode;
+        Context configured = app.createConfigurationContext(config);
+        Resources.Theme theme = configured.getResources().newTheme();
         theme.applyStyle(R.style.AppTheme, true);
-        TypedArray values = theme.obtainStyledAttributes(
-                new int[]{android.R.attr.windowBackground,
-                        android.R.attr.windowDisablePreview});
+
+        TypedArray background = theme.obtainStyledAttributes(
+                new int[]{android.R.attr.colorBackground,
+                        android.R.attr.windowBackground});
+        final int expectedColor;
         try {
-            assertEquals("Launch preview should use the centered Lyrion logo",
-                    R.drawable.startup_background, values.getResourceId(0, 0));
-            assertFalse("Keep Android's native launch preview",
-                    values.getBoolean(1, false));
+            expectedColor = background.getColor(0, 0);
+            if (Build.VERSION.SDK_INT >= 31) {
+                assertEquals("Android 12+ window background should match system theme",
+                        expectedColor, background.getColor(1, 0));
+            } else {
+                assertEquals("Legacy splash should use the Lyrion icon drawable",
+                        R.drawable.startup_background, background.getResourceId(1, 0));
+            }
         } finally {
-            values.recycle();
+            background.recycle();
         }
-        Drawable drawable = ApplicationProvider.getApplicationContext()
-                .getResources().getDrawable(R.drawable.startup_background, theme);
-        assertTrue("Launch preview should contain background and existing logo",
+
+        if (Build.VERSION.SDK_INT >= 31) {
+            TypedArray splash = theme.obtainStyledAttributes(
+                    new int[]{android.R.attr.windowSplashScreenBackground});
+            try {
+                assertEquals("System splash should use Android theme background",
+                        expectedColor, splash.getColor(0, 0));
+            } finally {
+                splash.recycle();
+            }
+            return;
+        }
+
+        TypedArray preview = theme.obtainStyledAttributes(
+                new int[]{android.R.attr.windowDisablePreview});
+        try {
+            assertFalse("Keep Android's native splash preview",
+                    preview.getBoolean(0, false));
+        } finally {
+            preview.recycle();
+        }
+
+        Drawable drawable = configured.getResources()
+                .getDrawable(R.drawable.startup_background, theme);
+        assertTrue("Splash should combine the themed background and existing logo",
                 drawable instanceof LayerDrawable);
-        assertEquals(2, ((LayerDrawable) drawable).getNumberOfLayers());
-        Drawable logo = ((LayerDrawable) drawable).getDrawable(1);
-        assertTrue("Logo must be a BitmapDrawable on API 22+",
+        LayerDrawable layers = (LayerDrawable) drawable;
+        assertEquals(2, layers.getNumberOfLayers());
+
+        Drawable fill = layers.getDrawable(0);
+        assertTrue("Background should be theme-resolved solid fill",
+                fill instanceof GradientDrawable);
+        assertNotNull(((GradientDrawable) fill).getColor());
+        assertEquals("Splash background must follow Android's Light/Dark theme",
+                expectedColor, ((GradientDrawable) fill).getColor().getDefaultColor());
+
+        Drawable logo = layers.getDrawable(1);
+        assertTrue("Logo should be the existing BitmapDrawable",
                 logo instanceof BitmapDrawable);
-        assertEquals("Logo must be centered", Gravity.CENTER,
+        assertEquals("Logo should remain centered", Gravity.CENTER,
                 ((BitmapDrawable) logo).getGravity());
     }
 
