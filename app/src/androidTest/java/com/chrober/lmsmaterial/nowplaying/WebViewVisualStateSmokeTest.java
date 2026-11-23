@@ -21,13 +21,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Exercises the system WebView (not a mock) with an attached INVISIBLE view.
- * Runs on API 22 as a regression for missing API 23 methods, and on
- * API 25 (Fire OS 6 baseline) / API 29 with an actual visual-state callback.
+ * Exercises the standard attached, visible system WebView (not a mock).
+ * API 22 uses the legacy completion path. API 25/29 use visual-state callback.
  */
 @RunWith(AndroidJUnit4.class)
 public final class WebViewVisualStateSmokeTest {
-    @Test public void loadedOffscreenPageIsShownOnVisualCommitOrApi22Fallback()
+    @Test public void loadedPageCompletesVisualCommitOrApi22Fallback()
             throws Exception {
         Context app = ApplicationProvider.getApplicationContext();
         app.getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
@@ -42,11 +41,8 @@ public final class WebViewVisualStateSmokeTest {
                 WebView view = new WebView(activity);
                 webView.set(view);
                 view.setTag("webview-visual-qa");
-                view.setVisibility(View.INVISIBLE);
-                if (Build.VERSION.SDK_INT >= 23) {
-                    WebViewApi23.setOffscreenPreRaster(view, true);
-                    assertTrue(WebViewApi23.isOffscreenPreRaster(view));
-                } else {
+                assertEquals(View.VISIBLE, view.getVisibility());
+                if (Build.VERSION.SDK_INT < 23) {
                     assertFalse(WebViewReadinessPolicy.supportsVisualState(
                             Build.VERSION.SDK_INT));
                 }
@@ -56,12 +52,10 @@ public final class WebViewVisualStateSmokeTest {
                         if (Build.VERSION.SDK_INT >= 23) {
                             WebViewApi23.requestVisualState(page, 42L, requestId -> {
                                 assertEquals(42L, requestId);
-                                page.setVisibility(View.VISIBLE);
                                 shown.countDown();
                             });
                         } else {
                             // Ensure the API 22 fallback never invokes API 23.
-                            page.setVisibility(View.VISIBLE);
                             shown.countDown();
                         }
                     }

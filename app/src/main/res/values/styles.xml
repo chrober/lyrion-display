@@ -3,5 +3,7 @@
     <!-- Pre-Android 12: inherit the platform's light system palette. -->
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <!-- Reuse the app logo and the native Android theme background. -->
+        <item name="android:windowBackground">@drawable/startup_background</item>
     </style>
 </resources>

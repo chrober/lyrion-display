@@ -13,14 +13,6 @@ final class WebViewApi23 {
         void onReady(long requestId);
     }
 
-    static void setOffscreenPreRaster(WebView view, boolean enabled) {
-        view.getSettings().setOffscreenPreRaster(enabled);
-    }
-
-    static boolean isOffscreenPreRaster(WebView view) {
-        return view.getSettings().getOffscreenPreRaster();
-    }
-
     static void requestVisualState(WebView view, long requestId, OnVisualReady callback) {
         view.postVisualStateCallback(requestId, new WebView.VisualStateCallback() {
             @Override public void onComplete(long id) {

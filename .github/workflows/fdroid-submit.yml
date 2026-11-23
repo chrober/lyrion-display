@@ -1,0 +1,210 @@
+name: F-Droid submission (manual only)
+
+# Neither a release tag nor a GitHub Release triggers F-Droid submission.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Already-published immutable release tag (for example v0.4.0)'
+        required: true
+        default: 'v0.4.0'
+        type: string
+      mode:
+        description: 'Check only, or explicitly submit a GitLab fdroiddata MR'
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - submit
+      confirmation:
+        description: 'Submit only: enter SUBMIT v0.4.0 (adapt to the selected tag)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-fdroid-submission
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify tagged source, APK and prepare metadata (no publication)
+    if: github.ref == 'refs/heads/main' && github.repository == 'chrober/lyrion-display'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Reject invalid or unconfirmed manual requests
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]] || {
+            echo "::error::Expected an explicit vMAJOR.MINOR.PATCH release tag"
+            exit 1
+          }
+          if [[ "$MODE" == submit && "$CONFIRMATION" != "SUBMIT $RELEASE_TAG" ]]; then
+            echo "::error::Submit requires confirmation: SUBMIT $RELEASE_TAG"
+            exit 1
+          fi
+          [[ "$MODE" == submit || "$MODE" == dry-run ]] || exit 1
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove checkout is the immutable release tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          tagged_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
+          test -n "$tagged_sha"
+          test "$(git rev-parse HEAD)" = "$tagged_sha"
+          version="$(sed -nE "s/^[[:space:]]*versionName '([^']+)'.*$/\1/p" app/build.gradle)"
+          test "$RELEASE_TAG" = "v$version"
+          grep -Fq "applicationId 'com.chrober.lmsmaterial.nowplaying'" app/build.gradle
+          grep -Eq "^[[:space:]]*minSdk[[:space:]]+22$" app/build.gradle
+          echo "sha=$tagged_sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install isolated F-Droid QA tools
+        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'apksigcopier==1.1.1'
+      - name: Verify source recipe and run submission unit tests
+        run: |
+          python3 tools/check_fdroid_recipe.py
+          python3 -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
+      - name: Generate immutable submission metadata
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          python3 tools/fdroid_prepare_submission.py \
+            --tag "$RELEASE_TAG" \
+            --checkout . \
+            --output "fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml"
+          mkdir -p fdroid-submission/config
+          cp fdroid/config/categories.yml fdroid-submission/config/categories.yml
+          (
+            cd fdroid-submission
+            fdroid readmeta
+            fdroid lint com.chrober.lmsmaterial.nowplaying
+          )
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install Android SDK and original APK signing verifier
+        shell: bash
+        run: |
+          sdkmanager_bin="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$sdkmanager_bin"
+          "$sdkmanager_bin" --install 'platforms;android-35' 'build-tools;35.0.0' 'build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.9.1'
+          cache-provider: basic
+      - name: Independently reproduce the tagged unsigned APK in F-Droid Trixie
+        env:
+          GITHUB_SHA: ${{ steps.release.outputs.sha }}
+          FDROID_QA_UNSIGNED_OUT: ${{ github.workspace }}/fdroid-submission/rebuilt-unsigned.apk
+        shell: bash
+        run: |
+          test -z "$ANDROID_KEYSTORE_PATH"
+          gradle --no-daemon :app:assembleRelease
+          bash tools/qa_fdroid_rebuild.sh
+          test -s fdroid-submission/rebuilt-unsigned.apk
+          cmp -s app/build/outputs/apk/release/app-release-unsigned.apk \
+            fdroid-submission/rebuilt-unsigned.apk
+      - name: Download published APK and verify checksum, signer and reproducibility
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          filename="lyrion-display-$RELEASE_TAG.apk"
+          url="https://github.com/chrober/lyrion-display/releases/download/$RELEASE_TAG/$filename"
+          cd fdroid-submission
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+            --output "$filename" "$url"
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+            --output "$filename.sha256" "$url.sha256"
+          sha256sum -c "$filename.sha256"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose \
+            --print-certs --min-sdk-version 25 "$filename" | tee signing-certificate.txt
+          grep -Fq 'Signer #1 certificate SHA-256 digest: af624ba3a730a5bf4a9d0b77e2bed2ec557744705362d4a4445e6dcb125f1dfb' signing-certificate.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$filename" | tee apk-identity.txt
+          grep -Fq "name='com.chrober.lmsmaterial.nowplaying'" apk-identity.txt
+          grep -Fq "versionName='$version'" apk-identity.txt
+          export PATH="$ANDROID_HOME/build-tools/34.0.0:$PATH"
+          apksigcopier compare --unsigned "$filename" rebuilt-unsigned.apk
+          printf 'PASS: $RELEASE_TAG source/build/release/signature agree\n' | tee submission-evidence.txt
+      - name: Upload metadata and QA evidence only (never APKs or credentials)
+        uses: actions/upload-artifact@v7
+        with:
+          name: fdroid-manual-submission-reviewed-metadata
+          path: |
+            fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml
+            fdroid-submission/signing-certificate.txt
+            fdroid-submission/apk-identity.txt
+            fdroid-submission/submission-evidence.txt
+            qa-fdroid-reproducibility-result.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Confirm no publication on dry run
+        if: inputs.mode == 'dry-run'
+        run: echo "F-Droid dry run completed; no GitLab merge request or publication was made."
+
+  submit:
+    name: Explicitly create GitLab fdroiddata merge request
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.repository == 'chrober/lyrion-display' && inputs.mode == 'submit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: fdroid-submission
+    permissions:
+      contents: read
+    steps:
+      - name: Check explicit release confirmation before credentials
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$CONFIRMATION" = "SUBMIT $RELEASE_TAG" || {
+            echo "::error::Manual submission confirmation missing"
+            exit 1
+          }
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install metadata parser
+        run: python3 -m pip install --disable-pip-version-check PyYAML
+      - uses: actions/download-artifact@v7
+        with:
+          name: fdroid-manual-submission-reviewed-metadata
+          path: reviewed
+      - name: Create a reviewable F-Droid MR in the configured GitLab fork
+        env:
+          GITLAB_FDROID_TOKEN: ${{ secrets.FDROID_GITLAB_TOKEN }}
+          GITLAB_FDROID_FORK_PROJECT_ID: ${{ vars.FDROID_GITLAB_FORK_PROJECT_ID }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        shell: bash
+        run: |
+          python3 tools/fdroid_submit_gitlab.py \
+            --tag "$RELEASE_TAG" \
+            --metadata reviewed/fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml \
+            --confirmation "$CONFIRMATION"

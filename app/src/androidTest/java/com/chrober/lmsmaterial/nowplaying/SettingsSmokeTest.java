@@ -1,6 +1,16 @@
 package com.chrober.lmsmaterial.nowplaying;
 
 import android.content.Context;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.content.res.TypedArray;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.os.Build;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -9,6 +19,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 import android.view.View;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -47,6 +58,106 @@ public final class SettingsSmokeTest {
             }
         }
         return null;
+    }
+
+    @Test public void splashUsesNativeAndroidBackgroundInLightAndDarkMode() {
+        checkSplashColors(Configuration.UI_MODE_NIGHT_NO);
+        checkSplashColors(Configuration.UI_MODE_NIGHT_YES);
+    }
+
+    private void checkSplashColors(int nightMode) {
+        Context app = ApplicationProvider.getApplicationContext();
+        Configuration config = new Configuration(app.getResources().getConfiguration());
+        config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | nightMode;
+        Context configured = app.createConfigurationContext(config);
+        Resources.Theme theme = configured.getResources().newTheme();
+        theme.applyStyle(R.style.AppTheme, true);
+
+        TypedArray background = theme.obtainStyledAttributes(
+                new int[]{android.R.attr.colorBackground,
+                        android.R.attr.windowBackground});
+        final int expectedColor;
+        try {
+            expectedColor = background.getColor(0, 0);
+            if (Build.VERSION.SDK_INT >= 31) {
+                assertEquals("Android 12+ window background should match system theme",
+                        expectedColor, background.getColor(1, 0));
+            } else {
+                assertEquals("Legacy splash should use the Lyrion icon drawable",
+                        R.drawable.startup_background, background.getResourceId(1, 0));
+            }
+        } finally {
+            background.recycle();
+        }
+
+        if (Build.VERSION.SDK_INT >= 31) {
+            TypedArray splash = theme.obtainStyledAttributes(
+                    new int[]{android.R.attr.windowSplashScreenBackground});
+            try {
+                assertEquals("System splash should use Android theme background",
+                        expectedColor, splash.getColor(0, 0));
+            } finally {
+                splash.recycle();
+            }
+            return;
+        }
+
+        TypedArray preview = theme.obtainStyledAttributes(
+                new int[]{android.R.attr.windowDisablePreview});
+        try {
+            assertFalse("Keep Android's native splash preview",
+                    preview.getBoolean(0, false));
+        } finally {
+            preview.recycle();
+        }
+
+        Drawable drawable = configured.getResources()
+                .getDrawable(R.drawable.startup_background, theme);
+        assertTrue("Splash should combine the themed background and existing logo",
+                drawable instanceof LayerDrawable);
+        LayerDrawable layers = (LayerDrawable) drawable;
+        assertEquals(2, layers.getNumberOfLayers());
+
+        Drawable fill = layers.getDrawable(0);
+        assertTrue("Background should be theme-resolved solid fill",
+                fill instanceof GradientDrawable);
+        // GradientDrawable.getColor() is unavailable on the supported API 22.
+        // Rendering the solid shape verifies the actual resolved system color
+        // on every supported Android version instead.
+        Bitmap sample = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        try {
+            fill.setBounds(0, 0, 8, 8);
+            fill.draw(new Canvas(sample));
+            assertEquals("Splash background must follow Android's Light/Dark theme",
+                    expectedColor, sample.getPixel(4, 4));
+        } finally {
+            sample.recycle();
+        }
+
+        Drawable logo = layers.getDrawable(1);
+        assertTrue("Logo should be the existing BitmapDrawable",
+                logo instanceof BitmapDrawable);
+        assertEquals("Logo should remain centered", Gravity.CENTER,
+                ((BitmapDrawable) logo).getGravity());
+    }
+
+    @Test public void removedPerformanceExperimentsAreNeitherShownNorPersisted() {
+        ApplicationProvider.getApplicationContext()
+                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                .edit().putBoolean("experimental_offscreen_preraster", true)
+                .putBoolean("experimental_early_now_playing", true).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                assertNull(findText(root, "PERFORMANCE (EXPERIMENTAL)"));
+                assertNull(findText(root, "Pre-render hidden WebView"));
+                assertNull(findText(root, "Early Now Playing readiness"));
+                android.content.SharedPreferences settings = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertFalse(settings.contains("experimental_offscreen_preraster"));
+                assertFalse(settings.contains("experimental_early_now_playing"));
+            });
+        }
     }
 
     @Test public void firstLaunchShowsNativeSettingsAndSetupActions() {

@@ -26,36 +26,7 @@ final class WebViewNavigationTrace {
     private int pagesStarted;
     private int optionsAttempts;
     private int optionReloads;
-    private boolean earlyMode;
-    private int earlyProbes;
-    private int earlyReplies;
-    private int earlyTimeouts;
-    private int earlyQualifiedReplies;
-    private long earlyFirstProbeMs = -1;
-    private long earlyLastReplyMs = -1;
-    private EarlyNowPlayingProbe.Result earlyLastResult;
-    private long earlyCandidateMs = -1;
-    private String readySource = "none";
-
     void navigationStarted(long ms) { navigationStartedMs = ms; }
-
-    void earlyMode(boolean enabled) { earlyMode = enabled; }
-    void earlyProbeStarted(long now) {
-        earlyProbes++;
-        if (earlyFirstProbeMs < 0) earlyFirstProbeMs = now;
-    }
-
-    void earlyProbeReplied(long now, EarlyNowPlayingProbe.Result result) {
-        earlyReplies++;
-        earlyLastReplyMs = now;
-        earlyLastResult = result;
-        if (result != null && result.qualified()) earlyQualifiedReplies++;
-    }
-
-    void earlyProbeTimedOut() { earlyTimeouts++; }
-
-    void earlyCandidate(long now) { earlyCandidateMs = now; }
-    void readySource(boolean early) { readySource = early ? "early" : "finished"; }
 
     void pageStarted(long ms, boolean stub) {
         pagesStarted++;
@@ -70,8 +41,6 @@ final class WebViewNavigationTrace {
             commitProbeAppPresent = -1;
             commitProbeControlsPresent = -1;
             commitProbeAfterFinish = -1;
-            earlyCandidateMs = -1;
-            readySource = "none";
         }
     }
 
@@ -116,23 +85,6 @@ final class WebViewNavigationTrace {
 
     String report(String outcome, long now) {
         return "phase=native outcome=" + outcome
-                + " early_mode=" + (earlyMode ? "on" : "off")
-                + " early_probes=" + earlyProbes
-                + " early_replies=" + earlyReplies
-                + " early_timeouts=" + earlyTimeouts
-                + " early_qualified_replies=" + earlyQualifiedReplies
-                + " early_first_probe_ms=" + elapsed(navigationStartedMs, earlyFirstProbeMs)
-                + " early_last_reply_ms=" + elapsed(navigationStartedMs, earlyLastReplyMs)
-                + " early_last_app=" + flag(earlyLastResult == null
-                        ? null : earlyLastResult.app)
-                + " early_last_controls=" + flag(earlyLastResult == null
-                        ? null : earlyLastResult.controls)
-                + " early_last_vue=" + flag(earlyLastResult == null
-                        ? null : earlyLastResult.vue)
-                + " early_last_visible=" + flag(earlyLastResult == null
-                        ? null : earlyLastResult.visible)
-                + " early_candidate_ms=" + elapsed(navigationStartedMs, earlyCandidateMs)
-                + " ready_source=" + readySource
                 + " page_count=" + pagesStarted
                 + " first_page_start_ms=" + elapsed(navigationStartedMs, firstPageStartedMs)
                 + " np_stub_ms=" + elapsed(firstPageStartedMs, stubFinishedMs)
@@ -154,10 +106,6 @@ final class WebViewNavigationTrace {
                 + " options_js_exec_us=" + lastOptionsScriptMicros
                 + " options_callback_gap_ms=" + callbackGapMs()
                 + " options_reload_count=" + optionReloads;
-    }
-
-    private static int flag(Boolean value) {
-        return value == null ? -1 : (value ? 1 : 0);
     }
 
     private long callbackGapMs() {
