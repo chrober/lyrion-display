@@ -133,6 +133,13 @@ PY
   echo "::error::Runner and F-Droid Java 25 unsigned APK bytes differ. Do not sign/distribute RC."
   exit 1
 fi
+# Optional: the manual F-Droid workflow also compares the same independent
+# unsigned source build against the *published, developer-signed* release APK.
+# By default keep nothing, so the existing RC/QA behavior remains unchanged.
+if [[ -n "${FDROID_QA_UNSIGNED_OUT:-}" ]]; then
+  mkdir -p "$(dirname "$FDROID_QA_UNSIGNED_OUT")"
+  cp "$fdroid_unsigned" "$FDROID_QA_UNSIGNED_OUT"
+fi
 echo "REPRODUCIBLE=true; unsigned APK byte-for-byte identical." | tee "$GITHUB_WORKSPACE/qa-java25-v040-result.txt"
 if [[ -n "$GITHUB_STEP_SUMMARY" ]]; then
   echo "### v0.4.0 Java 25 source reproducibility: PASS" >> "$GITHUB_STEP_SUMMARY"
