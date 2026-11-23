@@ -89,6 +89,13 @@ def prepare(repo: Path, tag: str, output: Path) -> None:
     gradle = (repo / "app/build.gradle").read_text(encoding="utf-8")
     source = yaml.safe_load((repo / "fdroid/metadata" / (APP_ID + ".yml")).read_text(encoding="utf-8"))
     doc = build_metadata(source, tag, sha, gradle)
+    # Include meaningful listing copy in the standalone fdroiddata submission.
+    # The existing source fastlane texts are the authoritative public content.
+    description_dir = repo / "fastlane/metadata/android/en-US"
+    doc["Summary"] = (description_dir / "short_description.txt").read_text(
+        encoding="utf-8").strip()
+    doc["Description"] = (description_dir / "full_description.txt").read_text(
+        encoding="utf-8").strip()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=100),
                       encoding="utf-8")

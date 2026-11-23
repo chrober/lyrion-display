@@ -52,6 +52,32 @@ jobs:
         run: python tools/check_fdroid_recipe.py
       - name: Test manually generated submission metadata and no-auto-update safeguards
         run: python -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
+      - name: Lint generated v0.4.0 submission recipe before a release tag exists
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import yaml
+          from tools.fdroid_prepare_submission import APP_ID, build_metadata
+          base = yaml.safe_load(Path("fdroid/metadata", APP_ID + ".yml").read_text())
+          gradle = Path("app/build.gradle").read_text()
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          metadata = build_metadata(base, "v0.4.0", sha, gradle)
+          description = Path("fastlane/metadata/android/en-US")
+          metadata["Summary"] = (description / "short_description.txt").read_text().strip()
+          metadata["Description"] = (description / "full_description.txt").read_text().strip()
+          output = Path("fdroid-submission/metadata", APP_ID + ".yml")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True))
+          PY
+          mkdir -p fdroid-submission/config
+          cp fdroid/config/categories.yml fdroid-submission/config/categories.yml
+          (
+            cd fdroid-submission
+            fdroid readmeta
+            fdroid lint com.chrober.lmsmaterial.nowplaying
+          )
       - name: Validate using F-Droid's metadata parser and linter
         shell: bash
         run: |
