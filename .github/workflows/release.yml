@@ -126,5 +126,4 @@ jobs:
             "lyrion-display-${RELEASE_TAG}.apk.sha256" \
             --title "Lyrion Display $RELEASE_TAG" \
             --target "$GITHUB_SHA" \
-            --prerelease \
             --generate-notes
