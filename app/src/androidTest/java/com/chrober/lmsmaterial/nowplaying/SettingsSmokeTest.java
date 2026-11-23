@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.os.Build;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -119,9 +121,18 @@ public final class SettingsSmokeTest {
         Drawable fill = layers.getDrawable(0);
         assertTrue("Background should be theme-resolved solid fill",
                 fill instanceof GradientDrawable);
-        assertNotNull(((GradientDrawable) fill).getColor());
-        assertEquals("Splash background must follow Android's Light/Dark theme",
-                expectedColor, ((GradientDrawable) fill).getColor().getDefaultColor());
+        // GradientDrawable.getColor() is unavailable on the supported API 22.
+        // Rendering the solid shape verifies the actual resolved system color
+        // on every supported Android version instead.
+        Bitmap sample = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        try {
+            fill.setBounds(0, 0, 8, 8);
+            fill.draw(new Canvas(sample));
+            assertEquals("Splash background must follow Android's Light/Dark theme",
+                    expectedColor, sample.getPixel(4, 4));
+        } finally {
+            sample.recycle();
+        }
 
         Drawable logo = layers.getDrawable(1);
         assertTrue("Logo should be the existing BitmapDrawable",
