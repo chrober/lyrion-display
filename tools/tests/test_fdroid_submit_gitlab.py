@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fdroid_submit_gitlab import merge_upstream  # noqa: E402
+from fdroid_submit_gitlab import merge_upstream, require_clean_ancestor  # noqa: E402
 from fdroid_prepare_submission import APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT
 
 
@@ -43,6 +43,41 @@ class GitLabMetadataTests(unittest.TestCase):
         old = dict(self.new, AutoUpdateMode="Version %v")
         with self.assertRaisesRegex(ValueError, "not manual"):
             merge_upstream(old, self.new)
+
+
+class ForkSynchronizationTests(unittest.TestCase):
+    UP = "d" * 40
+    FORK = "a" * 40
+
+    def test_equal_heads_are_accepted(self):
+        self.assertEqual(0, require_clean_ancestor(self.UP, self.UP, {}, {}))
+
+    def test_clean_behind_fork_is_accepted(self):
+        # Four upstream-only commits are not a reason to refuse an MR.
+        upstream_to_fork = {"compare_timeout": False, "commits": []}
+        fork_to_upstream = {"compare_timeout": False, "commits": [
+            {"id": "b" * 40}, {"id": "c" * 40}, {"id": "e" * 40},
+            {"id": self.UP},
+        ]}
+        self.assertEqual(4, require_clean_ancestor(
+            self.UP, self.FORK, upstream_to_fork, fork_to_upstream))
+
+    def test_fork_with_unique_history_is_rejected(self):
+        forward = {"compare_timeout": False, "commits": [{"id": self.UP}]}
+        reverse = {"compare_timeout": False, "commits": [{"id": self.FORK}]}
+        with self.assertRaisesRegex(ValueError, "not present in official upstream"):
+            require_clean_ancestor(self.UP, self.FORK, reverse, forward)
+
+    def test_unverified_or_partial_compare_is_rejected(self):
+        clean_reverse = {"compare_timeout": False, "commits": []}
+        for forward in (
+            {"compare_timeout": True, "commits": [{"id": self.UP}]},
+            {"compare_timeout": False},
+            {"compare_timeout": False, "commits": []},
+            {"compare_timeout": False, "commits": [{"id": "b" * 40}]},
+        ):
+            with self.assertRaises(ValueError):
+                require_clean_ancestor(self.UP, self.FORK, clean_reverse, forward)
 
 
 if __name__ == "__main__":

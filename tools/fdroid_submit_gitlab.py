@@ -66,6 +66,29 @@ def merge_upstream(previous: dict | None, candidate: dict) -> tuple[str, dict]:
     return "update", doc
 
 
+def require_clean_ancestor(upstream_sha: str, fork_sha: str,
+                           upstream_to_fork: dict, fork_to_upstream: dict) -> int:
+    """Permit a strictly behind, otherwise unchanged fdroiddata fork.
+
+    We require both direct GitLab comparisons to complete, no commits on the
+    fork that are missing from upstream, and the official upstream HEAD as
+    the final commit in the forward comparison. A diverged or unverifiable
+    fork fails closed rather than submitting unexpected history.
+    """
+    if upstream_sha == fork_sha:
+        return 0
+    if not all(isinstance(x, dict) and not x.get("compare_timeout") and
+               isinstance(x.get("commits"), list)
+               for x in (upstream_to_fork, fork_to_upstream)):
+        raise ValueError("Cannot verify fdroiddata fork ancestry via GitLab")
+    if upstream_to_fork["commits"]:
+        raise ValueError("fdroiddata fork has commits not present in official upstream")
+    behind_commits = fork_to_upstream["commits"]
+    if not behind_commits or behind_commits[-1].get("id") != upstream_sha:
+        raise ValueError("fdroiddata fork is not a verified ancestor of upstream")
+    return len(behind_commits)
+
+
 def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict) -> str:
     if not token or fork_id <= 0:
         raise ValueError("Protected GitLab credentials and numeric fork project ID required")
@@ -89,8 +112,28 @@ def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict) -> str:
                   + parse.quote(upstream_branch, safe=""))
     own = api_call(token, "GET", f"/projects/{fork_id}/repository/branches/"
                    + parse.quote(fork_branch, safe=""))
-    if up.get("commit", {}).get("id") != own.get("commit", {}).get("id"):
-        raise ValueError("Your fdroiddata fork is not synchronized with upstream's default branch")
+    upstream_sha = up.get("commit", {}).get("id")
+    fork_sha = own.get("commit", {}).get("id")
+    if not upstream_sha or not fork_sha:
+        raise ValueError("Could not verify both fdroiddata default branch commits")
+    if upstream_sha != fork_sha:
+        # F-Droid fdroiddata receives frequent upstream commits. An unchanged
+        # fork may be a few commits behind by the time independent QA finishes.
+        # GitLab cross-project MRs support this: only reject divergent/advanced
+        # forks, not clean ancestors of upstream. Compare immutable SHAs, never
+        # live branch names, to avoid TOCTOU changes during verification.
+        compare_path = f"/projects/{upstream['id']}/repository/compare"
+        latest_to_fork = api_call(token, "GET", compare_path + "?" +
+                                  parse.urlencode({"from": upstream_sha, "to": fork_sha,
+                                                   "straight": "true"}))
+        fork_to_latest = api_call(token, "GET", compare_path + "?" +
+                                  parse.urlencode({"from": fork_sha, "to": upstream_sha,
+                                                   "straight": "true"}))
+        lag = require_clean_ancestor(upstream_sha, fork_sha,
+                                     latest_to_fork, fork_to_latest)
+        print(f"fdroiddata fork is a clean upstream ancestor ({lag} upstream commits behind).")
+    else:
+        print("fdroiddata fork is synchronized with upstream.")
 
     branch = "submit-" + APP_ID.replace(".", "-") + "-" + tag.replace(".", "-")
     if api_call(token, "GET", f"/projects/{fork_id}/repository/branches/" + branch,
