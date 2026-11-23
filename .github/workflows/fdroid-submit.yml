@@ -119,11 +119,38 @@ jobs:
         shell: bash
         run: |
           test -z "$ANDROID_KEYSTORE_PATH"
+          echo "::group::Validate reproducibility preconditions"
+          printf 'Requested source SHA: %s\\n' "$GITHUB_SHA"
+          printf 'Checked-out source SHA: %s\\n' "$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || {
+            echo "::error::Release tag checkout does not match the SHA passed to reproducibility QA"
+            exit 1
+          }
+          test -r tools/qa_fdroid_rebuild.sh
+          test -r app/build.gradle
+          echo "::endgroup::"
+          echo "::group::Build unsigned APK with the runner toolchain"
           gradle --no-daemon :app:assembleRelease
-          bash tools/qa_fdroid_rebuild.sh
-          test -s fdroid-submission/rebuilt-unsigned.apk
+          echo "Runner Gradle build returned exit code 0."
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk || {
+            echo "::error::Gradle did not produce app-release-unsigned.apk"
+            exit 1
+          }
+          echo "::endgroup::"
+          echo "::group::Rebuild independently with F-Droid Trixie"
+          # The verify job has no GitLab access tokens; trace the first failing
+          # shell condition rather than silently exiting without an error.
+          bash -x tools/qa_fdroid_rebuild.sh
+          echo "::endgroup::"
+          test -s fdroid-submission/rebuilt-unsigned.apk || {
+            echo "::error::Independent F-Droid unsigned APK was not copied to the submission staging directory"
+            exit 1
+          }
           cmp -s app/build/outputs/apk/release/app-release-unsigned.apk \
-            fdroid-submission/rebuilt-unsigned.apk
+            fdroid-submission/rebuilt-unsigned.apk || {
+            echo "::error::Gradle and F-Droid unsigned APK bytes differ"
+            exit 1
+          }
       - name: Download published APK and verify checksum, signer and reproducibility
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
