@@ -18,9 +18,12 @@ jobs:
   verify:
     name: Lint, test and build (API 22+)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -67,8 +70,19 @@ jobs:
             exit 1
           fi
           echo "Unsigned release APK generated and validated."
+      - name: Independently reproduce unsigned APK in F-Droid Trixie (Java 25)
+        shell: bash
+        run: bash tools/qa_java25_fdroid_rebuild.sh
       - name: Name debug APK
         run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/lyrion-display-debug.apk
+      - name: Publish independent F-Droid QA evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fdroid-reproducibility-evidence
+          path: qa-java25-v040-result.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Publish lint reports
         if: always()
         uses: actions/upload-artifact@v7

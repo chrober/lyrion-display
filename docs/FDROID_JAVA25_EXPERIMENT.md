@@ -59,9 +59,10 @@ existing Java source/target compatibility is 8.
    compare it to the **same new release** using `apksigcopier` before enabling
    any F-Droid build. Updating just the F-Droid JDK for an old developer-signed
    release is not sufficient.
-4. The Java 25 test is isolated in
-   [`qa-fdroid-java25.yml`](../.github/workflows/qa-fdroid-java25.yml);
-   the actual [disabled F-Droid recipe](../fdroid/metadata/com.chrober.lmsmaterial.nowplaying.yml)
+4. The historical Java 25-vs-v0.3.0 experiment was completed in PR #32;
+   its dedicated workflow has been removed as obsolete. The evidence remains
+   in this document and in the archived Actions run.
+   The actual [disabled F-Droid recipe](../fdroid/metadata/com.chrober.lmsmaterial.nowplaying.yml)
    and `check_fdroid_recipe.py` continue to enforce Java 17 for v0.3.0.
 
 **No release, signing action, F-Droid submission, or publication took place.**
