@@ -125,9 +125,11 @@ def main():
 
     branches = pages("/branches", "")
     names = {b["name"]: b for b in branches}
-    require(set(names) == set(EXPECTED_BRANCHES) | {"main"},
-            "Branch list changed since audit; refusing deletion")
+    require(set(names).issubset(set(EXPECTED_BRANCHES) | {"main"}) and "main" in names,
+            "Unexpected branch created since audit; refusing deletion")
     for name, expected_sha in EXPECTED_BRANCHES.items():
+        if name not in names:
+            continue  # Idempotent resume: already removed by the previous pass.
         current = names[name]
         require(current["commit"]["sha"] == expected_sha and not current["protected"],
                 f"Branch SHA/protection changed: {name}")
@@ -150,6 +152,8 @@ def main():
 
     removed = []
     for name, expected_sha in EXPECTED_BRANCHES.items():
+        if name not in names:
+            continue
         # Confirm the exact head immediately before the irreversible deletion.
         current = api("GET", "/git/ref/heads/" + parse.quote(name, safe="/"))
         require(current["object"]["sha"] == expected_sha, f"Ref moved: {name}")
@@ -162,9 +166,19 @@ def main():
     cleaned = 0
     failed_disable = []
     for workflow_id, path in OBSOLETE_WORKFLOWS.items():
-        result = api("PUT", "/actions/workflows/" + workflow_id + "/disable", optional=True)
-        if result is None:
+        try:
+            result = api("PUT", "/actions/workflows/" + workflow_id + "/disable", optional=True)
+            if result is None:
+                failed_disable.append(workflow_id)
+        except RuntimeError as exc:
+            # GitHub can return HTTP 403 for a workflow whose YAML was
+            # already deleted, even though Actions write permission allows
+            # removal of its own completed history. Continue with run cleanup.
+            if "returned HTTP 403" not in str(exc):
+                raise
             failed_disable.append(workflow_id)
+            print(f"Workflow {workflow_id} cannot be disabled (HTTP 403); "
+                  "removing its completed legacy runs instead.", flush=True)
         for run_id in targets.get(workflow_id, []):
             api("DELETE", "/actions/runs/" + str(run_id))
             cleaned += 1
