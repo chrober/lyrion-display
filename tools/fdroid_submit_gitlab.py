@@ -14,9 +14,15 @@ from pathlib import Path
 import re
 from urllib import error, parse, request
 
-import yaml
+from ruamel.yaml import YAML
 
-from fdroid_prepare_submission import APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT
+from fdroid_prepare_submission import (
+    APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT, canonical_yaml,
+)
+
+# F-Droid uses YAML 1.2: unquoted "yes" in Gradle build lists is a string,
+# not the boolean True returned by PyYAML's YAML 1.1 loader.
+YAML_READER = YAML(typ="safe")
 
 API = "https://gitlab.com/api/v4"
 UPSTREAM = "fdroid/fdroiddata"
@@ -50,7 +56,10 @@ def merge_upstream(previous: dict | None, candidate: dict) -> tuple[str, dict]:
         return "create", candidate
     if not isinstance(previous, dict) or previous.get("Repo") != REPO_URL:
         raise ValueError("Existing fdroiddata app metadata is unrelated to this upstream repo")
-    if previous.get("Binaries") != BINARY_URL or previous.get("AllowedAPKSigningKeys") != [SIGNING_CERT]:
+    old_signers = previous.get("AllowedAPKSigningKeys")
+    if isinstance(old_signers, str):
+        old_signers = [old_signers]  # F-Droid rewritemeta emits a scalar for one signer.
+    if previous.get("Binaries") != BINARY_URL or old_signers != [SIGNING_CERT]:
         raise ValueError("Existing signature policy differs; manual F-Droid review required")
     if previous.get("AutoUpdateMode") != "None" or previous.get("UpdateCheckMode") != "Static":
         raise ValueError("Existing F-Droid update policy is not manual; do not overwrite it")
@@ -146,12 +155,12 @@ def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict) -> str:
                           headers={"PRIVATE-TOKEN": token})
     try:
         with request.urlopen(req, timeout=30) as response:
-            old = yaml.safe_load(response.read().decode("utf-8"))
+            old = YAML_READER.load(response.read().decode("utf-8"))
     except error.HTTPError as exc:
         if exc.code != 404:
             raise RuntimeError(f"GitLab metadata read returned HTTP {exc.code}") from None
     operation, resulting = merge_upstream(old, metadata)
-    content = yaml.safe_dump(resulting, sort_keys=False, allow_unicode=True, width=100)
+    content = canonical_yaml(resulting)
 
     api_call(token, "POST", f"/projects/{fork_id}/repository/commits", {
         "branch": branch,
@@ -199,7 +208,7 @@ if __name__ == "__main__":
         parser.exit(1, "Missing FDROID_GITLAB_TOKEN secret.\n")
     try:
         fork_id = int(os.environ.get("GITLAB_FDROID_FORK_PROJECT_ID", "0"))
-        document = yaml.safe_load(args.metadata.read_text(encoding="utf-8"))
+        document = YAML_READER.load(args.metadata.read_text(encoding="utf-8"))
         url = submit_to_gitlab(os.environ["GITLAB_FDROID_TOKEN"], fork_id,
                                args.tag, document)
         print("F-Droid metadata Merge Request created: " + url)

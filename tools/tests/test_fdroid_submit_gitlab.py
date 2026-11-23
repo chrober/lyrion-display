@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fdroid_submit_gitlab import merge_upstream, require_clean_ancestor  # noqa: E402
+from fdroid_submit_gitlab import (
+    YAML_READER, merge_upstream, require_clean_ancestor,
+)  # noqa: E402
 from fdroid_prepare_submission import APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT
 
 
@@ -33,6 +35,18 @@ class GitLabMetadataTests(unittest.TestCase):
         self.assertEqual([9, 10], [x["versionCode"] for x in doc["Builds"]])
         self.assertEqual(AUTHOR, doc["AuthorName"])
         self.assertEqual(9, old["Builds"][0]["versionCode"])
+
+    def test_fdroid_yaml_12_preserves_gradle_yes_as_string(self):
+        doc = YAML_READER.load("Builds:\n  - gradle:\n      - yes\n")
+        self.assertEqual(["yes"], doc["Builds"][0]["gradle"])
+
+    def test_canonical_scalar_signer_is_accepted_for_next_release(self):
+        old = dict(self.new)
+        old["AllowedAPKSigningKeys"] = SIGNING_CERT
+        old["Builds"] = [{"versionName": "0.3.0", "versionCode": 9}]
+        action, updated = merge_upstream(old, self.new)
+        self.assertEqual("update", action)
+        self.assertEqual([9, 10], [b["versionCode"] for b in updated["Builds"]])
 
     def test_duplicate_versions_and_unexpected_signers_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "already exists"):

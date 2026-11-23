@@ -95,8 +95,16 @@ jobs:
           cp fdroid/config/categories.yml fdroid-submission/config/categories.yml
           (
             cd fdroid-submission
+            # The pinned release tag can predate newer formatting logic.
+            # Always normalize with the F-Droid formatter before uploading
+            # metadata for the separately approved GitLab submit job.
+            fdroid rewritemeta com.chrober.lmsmaterial.nowplaying
             fdroid readmeta
             fdroid lint com.chrober.lmsmaterial.nowplaying
+            # Reject changes on a second rewrite (format must be idempotent).
+            sha256sum metadata/com.chrober.lmsmaterial.nowplaying.yml > /tmp/fdroid-metadata-before.sha256
+            fdroid rewritemeta com.chrober.lmsmaterial.nowplaying
+            sha256sum -c /tmp/fdroid-metadata-before.sha256
           )
       - uses: actions/setup-java@v6
         with:
@@ -223,8 +231,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install metadata parser
-        run: python3 -m pip install --disable-pip-version-check PyYAML
+      - name: Install pinned F-Droid metadata formatter and YAML 1.2 parser
+        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.18,<0.19'
       - uses: actions/download-artifact@v7
         with:
           name: fdroid-manual-submission-reviewed-metadata

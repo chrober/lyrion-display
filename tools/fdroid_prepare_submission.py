@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import tempfile
 
 import yaml
 
@@ -76,6 +79,49 @@ def build_metadata(base: dict, tag: str, sha: str, gradle_script: str) -> dict:
     return obj
 
 
+def canonical_yaml(document: dict) -> str:
+    """Format fdroiddata metadata with F-Droid's own rewritemeta command.
+
+    PyYAML safe_dump is not F-Droid's canonical format: its default indentation,
+    key order, multiline descriptions and signer lists fail upstream CI.
+    Run without network credentials in a disposable, isolated metadata repo.
+    """
+    with tempfile.TemporaryDirectory(prefix="lyrion-fdroid-format-") as root:
+        workdir = Path(root)
+        metadata = workdir / "metadata"
+        metadata.mkdir()
+        output = metadata / (APP_ID + ".yml")
+        output.write_text(
+            yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=100),
+            encoding="utf-8",
+        )
+        source_categories = Path(__file__).resolve().parents[1] / "fdroid/config/categories.yml"
+        if source_categories.is_file():
+            destination = workdir / "config"
+            destination.mkdir()
+            shutil.copy2(source_categories, destination / "categories.yml")
+
+        # Never expose the protected GitLab token to fdroidserver.
+        child_env = {name: os.environ[name] for name in
+                     ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH")
+                     if name in os.environ}
+        try:
+            subprocess.run(
+                ["fdroid", "rewritemeta", APP_ID], cwd=workdir, env=child_env,
+                capture_output=True, check=True, text=True, timeout=120,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                FileNotFoundError) as exc:
+            raise ValueError(
+                "F-Droid canonical metadata formatting failed; aborting publication: "
+                + type(exc).__name__
+            ) from None
+        result = output.read_text(encoding="utf-8")
+        if not result or "    versionCode:" not in result:
+            raise ValueError("F-Droid metadata rewriter did not emit a canonical build")
+        return result
+
+
 def prepare(repo: Path, tag: str, output: Path) -> None:
     match = VERSION_RE.fullmatch(tag)
     if match is None:
@@ -97,8 +143,7 @@ def prepare(repo: Path, tag: str, output: Path) -> None:
     doc["Description"] = (description_dir / "full_description.txt").read_text(
         encoding="utf-8").strip()
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=100),
-                      encoding="utf-8")
+    output.write_text(canonical_yaml(doc), encoding="utf-8")
     print(f"Prepared F-Droid metadata for {tag} ({sha}), author: {AUTHOR}; no publication")
 
 

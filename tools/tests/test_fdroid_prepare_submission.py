@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fdroid_prepare_submission import APP_ID, AUTHOR, build_metadata  # noqa: E402
+from fdroid_prepare_submission import APP_ID, AUTHOR, build_metadata, canonical_yaml  # noqa: E402
 
 
 class SubmissionMetadataTests(unittest.TestCase):
@@ -33,6 +33,22 @@ class SubmissionMetadataTests(unittest.TestCase):
                             for command in item["Builds"][0]["sudo"]))
         self.assertEqual("0.3.0", self.original["Builds"][0]["versionName"])
         self.assertEqual(original, yaml.safe_dump(self.original))
+
+    def test_fdroid_canonical_metadata_is_stable(self):
+        import shutil
+        if not shutil.which("fdroid"):
+            self.skipTest("fdroidserver not installed")
+        item = build_metadata(self.original, "v0.4.0", "a" * 40, self.gradle)
+        item["Summary"] = "Fullscreen Now Playing display for Lyrion Music Server"
+        item["Description"] = (
+            "This is an independently built app.\n\n"
+            "The long description uses normal paragraphs."
+        )
+        text = canonical_yaml(item)
+        self.assertIn("    versionCode: 10", text)
+        self.assertIn("Description: |-", text)
+        self.assertIn("AllowedAPKSigningKeys:", text)
+        self.assertEqual(text, canonical_yaml(item))
 
     def test_bad_tag_version_sha_or_app_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "tag"):
