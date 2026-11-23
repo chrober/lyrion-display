@@ -47,6 +47,8 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.15,<0.17.22'
           python3 -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
+      - name: Check release security policy (permissions and R8)
+        run: python3 -m unittest discover -s tools/tests -p 'test_release_security_policy.py' -v
       - name: Verify classic PNG icon assets
         run: python3 tools/verify_launcher_assets.py
       - name: Android lint
@@ -64,7 +66,16 @@ jobs:
           gradle --no-daemon :app:assembleRelease
           apk=app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$apk"
+          # This must be a genuinely R8-minified release, not just a debug APK.
+          test -s app/build/outputs/mapping/release/mapping.txt
           python3 tools/verify_launcher_assets.py "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$apk" > "$RUNNER_TEMP/release-permissions.txt"
+          grep -Fq 'android.permission.INTERNET' "$RUNNER_TEMP/release-permissions.txt"
+          grep -Fq 'android.permission.CHANGE_WIFI_MULTICAST_STATE' "$RUNNER_TEMP/release-permissions.txt"
+          if grep -Fq 'android.permission.ACCESS_WIFI_STATE' "$RUNNER_TEMP/release-permissions.txt"; then
+            echo "::error::Removed Wi-Fi state permission reappeared in release APK"
+            exit 1
+          fi
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/unsigned-badging.txt"
           # Read the manifest version from Gradle; do not freeze CI to a prior release.
           version_code=$(sed -nE "s/^[[:space:]]*versionCode[[:space:]]+([0-9]+).*$/\\1/p" app/build.gradle)

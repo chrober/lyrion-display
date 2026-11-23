@@ -33,6 +33,18 @@ This small Android wrapper provides a more convenient experience: discover a Lyr
 
 The clock reuses Material Skin's own localized, automatically updated toolbar clock (not a second Android clock). When enabled, Lyrion Display reveals only that clock and reserves the toolbar space; the toolbar's navigation and playback controls remain hidden. Material Skin normally restricts its desktop clock to viewports at least 1300 CSS pixels wide. The app includes a narrowly scoped Vue visibility override for smaller WebView viewports; this may need adaptation if Material Skin changes its component internals.
 
+## Network access and release security
+
+Lyrion Display connects to a **server chosen by the user**, either through LAN discovery or a
+manually entered HTTP/HTTPS address. Many Lyrion servers use HTTP (usually port 9000), so
+Android cleartext traffic is intentionally enabled. HTTP connections are not encrypted: use
+trusted networks or configure HTTPS on your own server where available. The app does not
+require a cloud service, and its embedded Material Skin WebView is restricted to the chosen
+server origin for top-level navigation.
+
+For the manifest permission rationale, security trade-offs, and release-build R8 test policy,
+see [Network and release security](docs/SECURITY_NETWORK.md).
+
 ## Devices and requirements
 
 The application targets **Android 5.1 (API 22) or newer**, including:

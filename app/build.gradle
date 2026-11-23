@@ -28,7 +28,10 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            // R8 removes unused code and obfuscates implementation details in future
+            // releases. The immutable v0.4.0 APK/tag are intentionally unchanged.
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             // F-Droid builds from source without the developer's private signing key.
             // Preserve production signing for GitHub releases when configured.
             if (System.getenv('ANDROID_KEYSTORE_PATH')) {
