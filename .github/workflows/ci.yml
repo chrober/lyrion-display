@@ -96,34 +96,3 @@ jobs:
           name: lyrion-display-debug
           path: app/build/outputs/apk/debug/lyrion-display-debug.apk
           if-no-files-found: error
-
-  one-time-v040-dryrun-dispatch:
-    name: One-time manual-request F-Droid dry-run dispatch (NO SUBMISSION)
-    if: >-
-      github.repository == 'chrober/lyrion-display' &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[fdroid-dry-run-dispatch-20261123]')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - name: Start only v0.4.0 dry-run via workflow_dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # One-time bridge from the explicit user request. This job has no
-          # GitLab secret, environment, or permission to submit an MR.
-          payload='{"ref":"main","inputs":{"release_tag":"v0.4.0","mode":"dry-run","confirmation":""}}'
-          curl --fail --silent --show-error --location --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            --header "Content-Type: application/json" \
-            --data "$payload" \
-            "https://api.github.com/repos/chrober/lyrion-display/actions/workflows/fdroid-submit.yml/dispatches"
-          echo 'Requested a v0.4.0 dry-run only; no GitLab submission.'
