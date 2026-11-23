@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.os.Build;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import androidx.test.core.app.ActivityScenario;
@@ -14,6 +15,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 import android.view.View;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -75,6 +77,11 @@ public final class SettingsSmokeTest {
         assertTrue("Launch preview should contain background and existing logo",
                 drawable instanceof LayerDrawable);
         assertEquals(2, ((LayerDrawable) drawable).getNumberOfLayers());
+        Drawable logo = ((LayerDrawable) drawable).getDrawable(1);
+        assertTrue("Logo must be a BitmapDrawable on API 22+",
+                logo instanceof BitmapDrawable);
+        assertEquals("Logo must be centered", Gravity.CENTER,
+                ((BitmapDrawable) logo).getGravity());
     }
 
     @Test public void firstLaunchShowsNativeSettingsAndSetupActions() {
