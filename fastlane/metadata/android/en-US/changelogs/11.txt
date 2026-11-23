@@ -1,0 +1,1 @@
+Release builds now use R8 optimization, and the unneeded Wi-Fi state permission has been removed. Lyrion server discovery and HTTP compatibility remain supported. Additional emulator regression tests and network/security documentation are included.
