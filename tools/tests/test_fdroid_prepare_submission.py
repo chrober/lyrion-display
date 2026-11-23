@@ -29,7 +29,8 @@ class SubmissionMetadataTests(unittest.TestCase):
         self.assertEqual(10, item["Builds"][0]["versionCode"])
         self.assertNotIn("disable", item["Builds"][0])
         self.assertEqual("a" * 40, item["Builds"][0]["commit"])
-        self.assertIn("openjdk-25-jdk-headless", item["Builds"][0]["sudo"])
+        self.assertTrue(any("openjdk-25-jdk-headless" in command
+                            for command in item["Builds"][0]["sudo"]))
         self.assertEqual("0.3.0", self.original["Builds"][0]["versionName"])
         self.assertEqual(original, yaml.safe_dump(self.original))
 
