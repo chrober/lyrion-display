@@ -40,6 +40,13 @@ jobs:
         with:
           gradle-version: '9.9.1'
           cache-provider: basic
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test F-Droid submission safety (offline, no GitLab access)
+        run: |
+          python3 -m pip install --disable-pip-version-check PyYAML
+          python3 -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
       - name: Verify classic PNG icon assets
         run: python3 tools/verify_launcher_assets.py
       - name: Android lint
