@@ -120,7 +120,7 @@ jobs:
         run: |
           test -z "$ANDROID_KEYSTORE_PATH"
           gradle --no-daemon :app:assembleRelease
-          bash tools/qa_java25_fdroid_rebuild.sh
+          bash tools/qa_fdroid_rebuild.sh
           test -s fdroid-submission/rebuilt-unsigned.apk
           cmp -s app/build/outputs/apk/release/app-release-unsigned.apk \
             fdroid-submission/rebuilt-unsigned.apk
@@ -156,7 +156,7 @@ jobs:
             fdroid-submission/signing-certificate.txt
             fdroid-submission/apk-identity.txt
             fdroid-submission/submission-evidence.txt
-            qa-java25-v040-result.txt
+            qa-fdroid-reproducibility-result.txt
           if-no-files-found: error
           retention-days: 14
       - name: Confirm no publication on dry run

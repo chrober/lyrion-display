@@ -72,7 +72,7 @@ jobs:
           echo "Unsigned release APK generated and validated."
       - name: Independently reproduce unsigned APK in F-Droid Trixie (Java 25)
         shell: bash
-        run: bash tools/qa_java25_fdroid_rebuild.sh
+        run: bash tools/qa_fdroid_rebuild.sh
       - name: Name debug APK
         run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/lyrion-display-debug.apk
       - name: Publish independent F-Droid QA evidence
@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: fdroid-reproducibility-evidence
-          path: qa-java25-v040-result.txt
+          path: qa-fdroid-reproducibility-result.txt
           if-no-files-found: ignore
           retention-days: 14
       - name: Publish lint reports

@@ -64,7 +64,7 @@ jobs:
           fi
       - name: Independent F-Droid Trixie Java 25 source-build comparison (no secrets)
         shell: bash
-        run: bash tools/qa_java25_fdroid_rebuild.sh
+        run: bash tools/qa_fdroid_rebuild.sh
       - name: Check established signing secrets are available
         env:
           RELEASE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -115,7 +115,7 @@ jobs:
             cd candidate
             sha256sum lyrion-display-v0.4.0-rc.apk > lyrion-display-v0.4.0-rc.apk.sha256
           )
-          cp qa-java25-v040-result.txt candidate/
+          cp qa-fdroid-reproducibility-result.txt candidate/
           echo "### Signed QA candidate prepared; no GitHub/F-Droid release created" >> "$GITHUB_STEP_SUMMARY"
           echo "Android package com.chrober.lmsmaterial.nowplaying / v0.4.0 (10), minSdk 22, matching original production cert." >> "$GITHUB_STEP_SUMMARY"
       - name: Store signed candidate only as short-lived Actions artifact (not a Release)
