@@ -120,9 +120,13 @@ jobs:
         run: |
           test -z "$ANDROID_KEYSTORE_PATH"
           echo "::group::Validate reproducibility preconditions"
-          printf 'Requested source SHA: %s\n' "$GITHUB_SHA"
+          # GITHUB_SHA is the dispatching main commit, not the checked-out
+          # release tag. GitHub does not permit overriding its default
+          # GITHUB_* environment variables at workflow/step level.
+          release_sha="${{ steps.release.outputs.sha }}"
+          printf 'Release-tag source SHA: %s\n' "$release_sha"
           printf 'Checked-out source SHA: %s\n' "$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || {
+          test "$(git rev-parse HEAD)" = "$release_sha" || {
             echo "::error::Release tag checkout does not match the SHA passed to reproducibility QA"
             exit 1
           }
@@ -140,7 +144,9 @@ jobs:
           echo "::group::Rebuild independently with F-Droid Trixie"
           # The verify job has no GitLab access tokens; trace the first failing
           # shell condition rather than silently exiting without an error.
-          bash -x tools/qa_fdroid_rebuild.sh
+          # Override the process environment for the script itself, not
+          # the GitHub runner's protected GITHUB_SHA default variable.
+          GITHUB_SHA="$release_sha" bash tools/qa_fdroid_rebuild.sh
           echo "::endgroup::"
           test -s fdroid-submission/rebuilt-unsigned.apk || {
             echo "::error::Independent F-Droid unsigned APK was not copied to the submission staging directory"
