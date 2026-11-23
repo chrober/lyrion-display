@@ -65,5 +65,19 @@ their runs, Dependabot, F-Droid dry run, and the released v0.4.0 APK are exclude
 | `426600109` | `.github/workflows/qa-fdroid-java25.yml` |
 | `426667815` | `.github/workflows/qa-v040-java25.yml` |
 
-The temporary main-only cleanup runner was SHA-guarded and removed from CI
-after its one successful use. This audit does not alter app behavior.
+## Cleanup result
+
+- **19 obsolete branches removed** after exact commit-SHA verification.
+- **67 completed historical Actions runs** removed for the 19 retired workflows.
+- The first cleanup job removed all branches and 29 runs, then GitHub
+  rejected disabling one deleted workflow (HTTP 403). A safe second pass
+  removed the remaining 38 runs; both passes left active workflows intact.
+- GitHub cannot necessarily disable an already-deleted workflow by API;
+  removing its historical runs clears the obsolete entry from normal Actions
+  history. The GitHub UI may need to refresh before reflecting this.
+- All six current workflows, Dependabot history, the successful F-Droid
+  dry run and immutable release tags were preserved.
+- The temporary one-off GitHub Actions cleanup job and its script were removed
+  from main immediately afterward. No ongoing cleanup automation remains.
+
+This audit does not alter app behavior.
