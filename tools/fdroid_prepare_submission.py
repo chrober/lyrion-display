@@ -138,11 +138,17 @@ def prepare(repo: Path, tag: str, output: Path) -> None:
     # Include meaningful listing copy in the standalone fdroiddata submission.
     # The existing source fastlane texts are the authoritative public content.
     description_dir = repo / "fastlane/metadata/android/en-US"
-    doc["Summary"] = (description_dir / "short_description.txt").read_text(
+    summary = (description_dir / "short_description.txt").read_text(
         encoding="utf-8").strip()
+    if not summary or "\n" in summary or len(summary) > 80:
+        raise ValueError("F-Droid localized summary must be one line of 1–80 characters")
+    doc.pop("Summary", None)
     doc["Description"] = (description_dir / "full_description.txt").read_text(
         encoding="utf-8").strip()
     output.parent.mkdir(parents=True, exist_ok=True)
+    localized = output.with_suffix("") / "en-US" / "summary.txt"
+    localized.parent.mkdir(parents=True, exist_ok=True)
+    localized.write_text(summary + "\n", encoding="utf-8")
     output.write_text(canonical_yaml(doc), encoding="utf-8")
     print(f"Prepared F-Droid metadata for {tag} ({sha}), author: {AUTHOR}; no publication")
 

@@ -27,6 +27,38 @@ YAML_READER = YAML(typ="safe")
 API = "https://gitlab.com/api/v4"
 UPSTREAM = "fdroid/fdroiddata"
 FILE = "metadata/" + APP_ID + ".yml"
+SUMMARY_FILE = "metadata/" + APP_ID + "/en-US/summary.txt"
+
+
+def localized_summary_action(summary: str, previous: str | None) -> dict | None:
+    """New submission creates summary.txt; updates preserve or amend the existing file."""
+    if not isinstance(summary, str):
+        raise ValueError("Localized F-Droid summary must be text")
+    clean = summary.strip()
+    if not clean or "\n" in clean or len(clean) > 80:
+        raise ValueError("Localized F-Droid summary must be one line of 1–80 characters")
+    desired = clean + "\n"
+    if previous == desired:
+        return None
+    return {"action": "create" if previous is None else "update",
+            "file_path": SUMMARY_FILE, "content": desired}
+
+
+def read_upstream_file(token: str, project_id: int, path: str, branch: str) -> str | None:
+    """Read existing fdroiddata content; 404 means a new app/localization only."""
+    address = (API + f"/projects/{project_id}/repository/files/" +
+               parse.quote(path, safe="") + "/raw?" +
+               parse.urlencode({"ref": branch}))
+    req = request.Request(address, headers={"PRIVATE-TOKEN": token})
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            return response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise RuntimeError(f"GitLab file read for {path} returned HTTP {exc.code}") from None
+    except error.URLError as exc:
+        raise RuntimeError("GitLab file read failed: " + type(exc.reason).__name__) from None
 
 
 def api_call(token: str, method: str, path: str, body: dict | None = None,
@@ -98,7 +130,8 @@ def require_clean_ancestor(upstream_sha: str, fork_sha: str,
     return len(behind_commits)
 
 
-def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict) -> str:
+def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict,
+                     summary: str) -> str:
     if not token or fork_id <= 0:
         raise ValueError("Protected GitLab credentials and numeric fork project ID required")
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
@@ -149,24 +182,26 @@ def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict) -> str:
                 allow_missing=True) is not None:
         raise ValueError("Submission branch already exists; review the existing branch/MR first")
 
-    file_url = f"/projects/{upstream['id']}/repository/files/{parse.quote(FILE, safe='')}/raw"
-    old = None
-    req = request.Request(API + file_url + "?" + parse.urlencode({"ref": upstream_branch}),
-                          headers={"PRIVATE-TOKEN": token})
-    try:
-        with request.urlopen(req, timeout=30) as response:
-            old = YAML_READER.load(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        if exc.code != 404:
-            raise RuntimeError(f"GitLab metadata read returned HTTP {exc.code}") from None
+    previous_metadata = read_upstream_file(
+        token, upstream["id"], FILE, upstream_branch)
+    previous_summary = read_upstream_file(
+        token, upstream["id"], SUMMARY_FILE, upstream_branch)
+    old = YAML_READER.load(previous_metadata) if previous_metadata is not None else None
     operation, resulting = merge_upstream(old, metadata)
+    # The English short description belongs in localized summary.txt, not
+    # the YAML root, otherwise upstream make-summary-translatable.py fails.
+    resulting.pop("Summary", None)
     content = canonical_yaml(resulting)
+    actions = [{"action": operation, "file_path": FILE, "content": content}]
+    summary_action = localized_summary_action(summary, previous_summary)
+    if summary_action is not None:
+        actions.append(summary_action)
 
     api_call(token, "POST", f"/projects/{fork_id}/repository/commits", {
         "branch": branch,
         "start_branch": fork_branch,
         "commit_message": f"Submit Lyrion Display {tag} to F-Droid",
-        "actions": [{"action": operation, "file_path": FILE, "content": content}],
+        "actions": actions,
     })
     title = f"New App: Lyrion Display ({tag})" if operation == "create" else f"Update Lyrion Display to {tag}"
     desc = (
@@ -200,6 +235,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
     parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--confirmation", required=True)
     args = parser.parse_args()
     if args.confirmation != "SUBMIT " + args.tag:
@@ -209,8 +245,9 @@ if __name__ == "__main__":
     try:
         fork_id = int(os.environ.get("GITLAB_FDROID_FORK_PROJECT_ID", "0"))
         document = YAML_READER.load(args.metadata.read_text(encoding="utf-8"))
+        summary = args.summary.read_text(encoding="utf-8")
         url = submit_to_gitlab(os.environ["GITLAB_FDROID_TOKEN"], fork_id,
-                               args.tag, document)
+                               args.tag, document, summary)
         print("F-Droid metadata Merge Request created: " + url)
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:

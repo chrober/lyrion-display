@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fdroid_submit_gitlab import (
-    YAML_READER, merge_upstream, require_clean_ancestor,
+    YAML_READER, merge_upstream, require_clean_ancestor, localized_summary_action, SUMMARY_FILE,
 )  # noqa: E402
 from fdroid_prepare_submission import APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT
 
@@ -21,6 +21,22 @@ class GitLabMetadataTests(unittest.TestCase):
             "Builds": [{"versionName": "0.4.0", "versionCode": 10, "commit": "a" * 40}],
             "CurrentVersion": "0.4.0", "CurrentVersionCode": 10,
         }
+
+    def test_new_localized_summary_file(self):
+        a = localized_summary_action("Fullscreen display", None)
+        self.assertEqual({"action": "create", "file_path": SUMMARY_FILE,
+                          "content": "Fullscreen display\n"}, a)
+
+    def test_existing_localized_summary_is_unchanged_or_updated(self):
+        self.assertIsNone(localized_summary_action("Fullscreen display",
+                          "Fullscreen display\n"))
+        self.assertEqual("update", localized_summary_action(
+                         "New caption", "Old caption\n")["action"])
+
+    def test_invalid_summary_is_rejected(self):
+        for summary in ("", "x\ny", "x" * 81):
+            with self.assertRaises(ValueError):
+                localized_summary_action(summary, None)
 
     def test_first_app_creates_only_selected_release(self):
         action, doc = merge_upstream(None, self.new)

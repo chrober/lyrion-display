@@ -50,6 +50,11 @@ class SubmissionMetadataTests(unittest.TestCase):
         self.assertIn("AllowedAPKSigningKeys:", text)
         self.assertEqual(text, canonical_yaml(item))
 
+    def test_localized_summary_must_not_be_in_yaml(self):
+        item = build_metadata(self.original, "v0.4.0", "a" * 40, self.gradle)
+        item.pop("Summary", None)
+        self.assertNotIn("Summary", item)
+
     def test_bad_tag_version_sha_or_app_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "tag"):
             build_metadata(self.original, "0.4.0", "a" * 40, self.gradle)
