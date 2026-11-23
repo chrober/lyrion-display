@@ -27,8 +27,10 @@ No personal email is required in F-Droid metadata.
 3. In GitHub repository Settings > Secrets and variables > Actions, add
    secret `FDROID_GITLAB_TOKEN` with the minimum GitLab API repository/MR
    permissions needed for that fork.
-4. Add repository variable `FDROID_GITLAB_FORK_PROJECT_ID` containing the
-   **numeric** project ID of your fork. No name or project ID is guessed.
+4. Add repository variable `FDROID_GITLAB_FORK_PROJECT_ID` with the
+   verified numeric ID **89337343** for [chrober/fdroiddata](https://gitlab.com/chrober/fdroiddata).
+   The fork is owned by the existing GitLab account `chrober`; do not
+   confuse it with the upstream project ID 36528.
 5. In GitHub Settings > Environments create `fdroid-submission` with
    required reviewers; restrict deployments to `main`.
 
