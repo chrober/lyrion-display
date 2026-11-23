@@ -4,8 +4,8 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.os.Build;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -54,41 +54,27 @@ public final class SettingsSmokeTest {
         return null;
     }
 
-    @Test public void legacyStartingWindowIsDisabledToRevealThemedNativeLoadingView() {
+    @Test public void legacyLaunchPreviewUsesDefaultLogoInsteadOfBlankScreen() {
         if (Build.VERSION.SDK_INT >= 31) return;
-        Resources.Theme launchTheme =
+        Resources.Theme theme =
                 ApplicationProvider.getApplicationContext().getResources().newTheme();
-        launchTheme.applyStyle(R.style.AppTheme, true);
-        TypedArray values = launchTheme.obtainStyledAttributes(
-                new int[]{android.R.attr.windowDisablePreview});
+        theme.applyStyle(R.style.AppTheme, true);
+        TypedArray values = theme.obtainStyledAttributes(
+                new int[]{android.R.attr.windowBackground,
+                        android.R.attr.windowDisablePreview});
         try {
-            assertTrue("Legacy Android should draw the app's own first frame, "
-                    + "not a separate launch preview", values.getBoolean(0, false));
+            assertEquals("Launch preview should use the centered Lyrion logo",
+                    R.drawable.startup_background, values.getResourceId(0, 0));
+            assertFalse("Keep Android's native launch preview",
+                    values.getBoolean(1, false));
         } finally {
             values.recycle();
         }
-    }
-
-    @Test public void activityWindowBackgroundMatchesSavedMaterialTheme() {
-        assertWindowBackground("dark", 0xff212121);
-        assertWindowBackground("light", 0xfffafafa);
-        assertWindowBackground("black", 0xff000000);
-        assertWindowBackground("dark-lyrion", 0xff081f22);
-    }
-
-    private void assertWindowBackground(String theme, int expected) {
-        ApplicationProvider.getApplicationContext()
-                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
-                .edit().putString("material_theme", theme).commit();
-        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
-            scenario.onActivity(activity -> {
-                Drawable background = activity.getWindow().getDecorView().getBackground();
-                assertTrue("Expected a solid window background for " + theme,
-                        background instanceof ColorDrawable);
-                assertEquals("Window background for " + theme,
-                        expected, ((ColorDrawable) background).getColor());
-            });
-        }
+        Drawable drawable = ApplicationProvider.getApplicationContext()
+                .getResources().getDrawable(R.drawable.startup_background, theme);
+        assertTrue("Launch preview should contain background and existing logo",
+                drawable instanceof LayerDrawable);
+        assertEquals(2, ((LayerDrawable) drawable).getNumberOfLayers());
     }
 
     @Test public void firstLaunchShowsNativeSettingsAndSetupActions() {

@@ -10,7 +10,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -31,7 +30,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
@@ -805,45 +803,29 @@ public final class MainActivity extends Activity {
 
         final int serial = requestSerial;
         final StartupTimings timings = startupTimings;
-        // Render one native, preference-themed loading frame *before*
-        // initializing WebView. First WebView construction can stall the UI
-        // thread and otherwise prolong Android's unthemed launch preview.
-        // The posted work runs after this first pre-draw traversal.
-        root.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
-            @Override public boolean onPreDraw() {
-                root.getViewTreeObserver().removeOnPreDrawListener(this);
-                root.post(() -> {
-                    if (serial != requestSerial || !displayVisible || displayRoot != root
-                            || startupTimings != timings || isFinishing() || isDestroyed())
-                        return;
-                    // Network preflight and empty WebView setup still overlap,
-                    // and navigation remains gated by the trusted probe.
-                    timings.probeStarted(SystemClock.elapsedRealtime());
-                    MaterialSkinProbe.check(activeUrl, result -> {
-                        if (serial != requestSerial || !displayVisible
-                                || isFinishing() || isDestroyed()
-                                || browser == null || startupTimings != timings)
-                            return;
-                        timings.probeFinished(SystemClock.elapsedRealtime());
-                        if (result.status != MaterialSkinProbe.Status.AVAILABLE) {
-                            materialProbeFailed(result);
-                            return;
-                        }
-                        long navigationStart = SystemClock.elapsedRealtime();
-                        timings.navigationStarted(navigationStart);
-                        if (navigationTrace != null) {
-                            navigationTrace.navigationStarted(navigationStart);
-                            navigationTrace.earlyMode(experimentalEarlyReadinessEnabled());
-                        }
-                        browser.loadUrl(activeUrl);
-                    });
-                    timings.webViewStarted(SystemClock.elapsedRealtime());
-                    prepareNowPlayingWebView(root, loading);
-                    timings.webViewPrepared(SystemClock.elapsedRealtime());
-                });
-                return true;
+        // Keep the existing overlap of server preflight and empty WebView
+        // preparation. No artificial wait or extra launch stages are needed.
+        timings.probeStarted(SystemClock.elapsedRealtime());
+        MaterialSkinProbe.check(activeUrl, result -> {
+            if (serial != requestSerial || !displayVisible || isFinishing() || isDestroyed()
+                    || browser == null || startupTimings != timings)
+                return;
+            timings.probeFinished(SystemClock.elapsedRealtime());
+            if (result.status != MaterialSkinProbe.Status.AVAILABLE) {
+                materialProbeFailed(result);
+                return;
             }
+            long navigationStart = SystemClock.elapsedRealtime();
+            timings.navigationStarted(navigationStart);
+            if (navigationTrace != null) {
+                navigationTrace.navigationStarted(navigationStart);
+                navigationTrace.earlyMode(experimentalEarlyReadinessEnabled());
+            }
+            browser.loadUrl(activeUrl);
         });
+        timings.webViewStarted(SystemClock.elapsedRealtime());
+        prepareNowPlayingWebView(root, loading);
+        timings.webViewPrepared(SystemClock.elapsedRealtime());
     }
 
     private void prepareNowPlayingWebView(FrameLayout root, TextView loading) {
@@ -1455,10 +1437,6 @@ public final class MainActivity extends Activity {
             TEXT = prefs.getInt(KEY_SAMPLED_TEXT, TEXT);
             ACCENT = prefs.getInt(KEY_SAMPLED_ACCENT, ACCENT);
         }
-        // The Android launch preview cannot use preferences, so AppTheme starts
-        // with the default dark background. Once preferences are available,
-        // match the real window surface to the selected Material Skin palette.
-        getWindow().setBackgroundDrawable(new ColorDrawable(BG));
     }
 
     /** Read actual Material Skin computed colors, including custom themes and cover colors. */
