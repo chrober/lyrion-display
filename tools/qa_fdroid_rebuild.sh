@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# Verify v0.4.0 reproducibility against an independent unsigned F-Droid build
-# in Debian Trixie using OpenJDK 25. NEVER signs or publishes anything.
+# Check source reproducibility of the checked-out Android version against a
+# second unsigned build in F-Droid Trixie using OpenJDK 25. Never publishes.
 # No signing secrets/keystores are available inside Docker.
 set -euo pipefail
 
 : "$GITHUB_WORKSPACE"
 : "$GITHUB_SHA"
 test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
-grep -Eq "^[[:space:]]*versionName[[:space:]]+'0\.4\.0'" "$GITHUB_WORKSPACE/app/build.gradle"
-grep -Eq '^[[:space:]]*versionCode[[:space:]]+10$' "$GITHUB_WORKSPACE/app/build.gradle"
-grep -Eq '^[[:space:]]*minSdk[[:space:]]+22$' "$GITHUB_WORKSPACE/app/build.gradle"
+gradle_file="$GITHUB_WORKSPACE/app/build.gradle"
+version_name="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+'([^']+)'.*$/\1/p" "$gradle_file")"
+version_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+).*$/\1/p' "$gradle_file")"
+[[ "$version_name" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ ]] || { echo "::error::Invalid versionName"; exit 1; }
+[[ "$version_code" =~ ^[0-9]+$ ]] || { echo "::error::Invalid versionCode"; exit 1; }
+grep -Eq '^[[:space:]]*minSdk[[:space:]]+22$' "$gradle_file"
+grep -Fq "applicationId 'com.chrober.lmsmaterial.nowplaying'" "$gradle_file"
+echo "Source-build check: v$version_name (versionCode $version_code)"
 
 unsigned="$GITHUB_WORKSPACE/app/build/outputs/apk/release/app-release-unsigned.apk"
 test -s "$unsigned"
@@ -58,8 +63,8 @@ SourceCode: https://github.com/chrober/lyrion-display
 RepoType: git
 Repo: https://github.com/chrober/lyrion-display.git
 Builds:
-  - versionName: '0.4.0'
-    versionCode: 10
+  - versionName: '$version_name'
+    versionCode: $version_code
     commit: $GITHUB_SHA
     disable: 'Internal QA only, not submitted or published'
     subdir: app
@@ -73,8 +78,8 @@ Builds:
       - 'yes'
 AutoUpdateMode: None
 UpdateCheckMode: Static
-CurrentVersion: '0.4.0'
-CurrentVersionCode: 10
+CurrentVersion: '$version_name'
+CurrentVersionCode: $version_code
 EOF
 
 cat > "$qa/build-qa.sh" <<'SH'
@@ -89,8 +94,8 @@ git config --global --add safe.directory /home/vagrant/fdroidserver
 git config --global --add safe.directory /build/build/com.chrober.lmsmaterial.nowplaying
 fdroid readmeta
 fdroid lint com.chrober.lmsmaterial.nowplaying
-fdroid build --test --force com.chrober.lmsmaterial.nowplaying 2>&1 | tee qa-v040-build.log
-test -s tmp/com.chrober.lmsmaterial.nowplaying_10.apk
+fdroid build --test --force com.chrober.lmsmaterial.nowplaying 2>&1 | tee qa-source-build.log
+test -s "tmp/com.chrober.lmsmaterial.nowplaying_${VERSION_CODE}.apk"
 SH
 
 git clone --quiet --depth=1 https://gitlab.com/fdroid/fdroidserver.git "$fdroidserver_dir"
@@ -99,6 +104,7 @@ chmod -R a+rwX "$qa"
 docker run --rm --user root --entrypoint /bin/bash \
   -v "$qa:/build" -w /build \
   -v "$fdroidserver_dir:/home/vagrant/fdroidserver:ro" \
+  -e VERSION_CODE="$version_code" \
   registry.gitlab.com/fdroid/fdroidserver:buildserver-trixie \
   -e -u -o pipefail -c '
     apt-get update
@@ -106,10 +112,10 @@ docker run --rm --user root --entrypoint /bin/bash \
     update-java-alternatives -a
     test -x /usr/lib/jvm/java-25-openjdk-amd64/bin/java
     /usr/lib/jvm/java-25-openjdk-amd64/bin/java -version
-    runuser -u vagrant -- env HOME=/home/vagrant /bin/bash /build/build-qa.sh
+    runuser -u vagrant -- env HOME=/home/vagrant VERSION_CODE="$VERSION_CODE" /bin/bash /build/build-qa.sh
   '
 
-fdroid_unsigned="$qa/tmp/com.chrober.lmsmaterial.nowplaying_10.apk"
+fdroid_unsigned="$qa/tmp/com.chrober.lmsmaterial.nowplaying_${version_code}.apk"
 test -s "$fdroid_unsigned"
 echo "Runner unsigned APK:"
 sha256sum "$unsigned"
@@ -140,7 +146,7 @@ if [[ -n "${FDROID_QA_UNSIGNED_OUT:-}" ]]; then
   mkdir -p "$(dirname "$FDROID_QA_UNSIGNED_OUT")"
   cp "$fdroid_unsigned" "$FDROID_QA_UNSIGNED_OUT"
 fi
-echo "REPRODUCIBLE=true; unsigned APK byte-for-byte identical." | tee "$GITHUB_WORKSPACE/qa-java25-v040-result.txt"
+echo "REPRODUCIBLE=true; unsigned APK byte-for-byte identical." | tee "$GITHUB_WORKSPACE/qa-fdroid-reproducibility-result.txt"
 if [[ -n "$GITHUB_STEP_SUMMARY" ]]; then
-  echo "### v0.4.0 Java 25 source reproducibility: PASS" >> "$GITHUB_STEP_SUMMARY"
+  echo "### v$version_name Java 25 source reproducibility: PASS" >> "$GITHUB_STEP_SUMMARY"
 fi
