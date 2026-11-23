@@ -120,8 +120,8 @@ jobs:
         run: |
           test -z "$ANDROID_KEYSTORE_PATH"
           echo "::group::Validate reproducibility preconditions"
-          printf 'Requested source SHA: %s\\n' "$GITHUB_SHA"
-          printf 'Checked-out source SHA: %s\\n' "$(git rev-parse HEAD)"
+          printf 'Requested source SHA: %s\n' "$GITHUB_SHA"
+          printf 'Checked-out source SHA: %s\n' "$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || {
             echo "::error::Release tag checkout does not match the SHA passed to reproducibility QA"
             exit 1
