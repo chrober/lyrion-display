@@ -1,9 +1,20 @@
-Lyrion Display turns an Android TV, Fire TV, tablet or smartphone into a fullscreen Now Playing display for Lyrion Music Server.
+Lyrion Display turns a Fire TV, Android TV device, tablet, or phone into a dedicated fullscreen Now Playing display for Lyrion Music Server.
 
-Choose your Lyrion server and player once, then launch directly into Material Skin's existing Now Playing view. Select compatible themes and colors, and optionally keep the screen awake.
+Choose a Lyrion server and player once. On subsequent launches, the app goes straight to Material Skin's existing Now Playing screen. It displays playback information without controlling the player or requiring a cloud account.
 
-This lightweight companion only displays playback information. Playback remains controlled by normal Lyrion clients, while Material Skin runs on your own Lyrion server. No cloud account or Google Play Services are required.
+REQUIREMENTS
+- A running Lyrion Music Server (LMS) with the Material Skin plugin installed and enabled on the server.
+- At least one Lyrion player available on that server.
+- An Android 5.1 (API 22) or newer device with network access to the server.
+- Authenticated Lyrion servers are not currently supported.
 
-Requires a reachable Lyrion Music Server with Material Skin enabled. Automatic discovery uses local-network broadcasts; manual entry is also available. Authenticated servers are not currently supported.
+FEATURES
+- Automatic local-network server discovery or manual server address entry.
+- Remembered server and player selection for quick startup.
+- Fullscreen album art and playback information from Material Skin.
+- Optional progress display, technical track details, playlist position, and clock.
+- Material Skin themes, color modes, and accent colors.
+- TV remote and touchscreen support, plus an optional keep-screen-awake setting.
+- No additional server plugin beyond Material Skin, no Google Play Services, and no cloud account.
 
-This is an independent, unofficial open-source companion, not an official Lyrion or Material Skin application.
+Lyrion Display is an independent, unofficial open-source companion. Material Skin runs on your Lyrion server, while playback is controlled from your usual Lyrion clients. Local Lyrion servers commonly use HTTP; prefer a trusted network or HTTPS where available.
