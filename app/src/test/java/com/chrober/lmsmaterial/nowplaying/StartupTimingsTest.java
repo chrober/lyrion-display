@@ -18,7 +18,7 @@ public final class StartupTimingsTest {
         timing.visualReady(1510, "callback");
         assertEquals("outcome=ready total_ms=510 probe_ms=240 webview_prepare_ms=60"
                         + " post_probe_ms=260 navigation_to_ready_ms=257"
-                        + " dom_to_visual_ms=80 visual_state=callback preraster=off",
+                        + " dom_to_visual_ms=80 visual_state=callback",
                 timing.report("ready", 1510));
     }
 
@@ -38,14 +38,13 @@ public final class StartupTimingsTest {
     }
 
     @Test public void reportsFallbackSeparatelyFromConfirmedVisualCallback() {
-        StartupTimings timing = new StartupTimings(100, true);
+        StartupTimings timing = new StartupTimings(100);
         timing.navigationStarted(140);
         timing.domReady(210);
         timing.visualReady(1710, "timeout");
         String report = timing.report("ready", 1710);
         assertTrue(report.contains("dom_to_visual_ms=1500"));
         assertTrue(report.contains("visual_state=timeout"));
-        assertTrue(report.contains("preraster=on"));
         assertTrue(report.contains("total_ms=1610"));
     }
 

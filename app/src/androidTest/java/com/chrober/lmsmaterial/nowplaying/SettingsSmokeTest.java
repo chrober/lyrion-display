@@ -141,6 +141,25 @@ public final class SettingsSmokeTest {
                 ((BitmapDrawable) logo).getGravity());
     }
 
+    @Test public void removedPerformanceExperimentsAreNeitherShownNorPersisted() {
+        ApplicationProvider.getApplicationContext()
+                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                .edit().putBoolean("experimental_offscreen_preraster", true)
+                .putBoolean("experimental_early_now_playing", true).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                assertNull(findText(root, "PERFORMANCE (EXPERIMENTAL)"));
+                assertNull(findText(root, "Pre-render hidden WebView"));
+                assertNull(findText(root, "Early Now Playing readiness"));
+                android.content.SharedPreferences settings = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertFalse(settings.contains("experimental_offscreen_preraster"));
+                assertFalse(settings.contains("experimental_early_now_playing"));
+            });
+        }
+    }
+
     @Test public void firstLaunchShowsNativeSettingsAndSetupActions() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {

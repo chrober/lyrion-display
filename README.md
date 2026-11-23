@@ -82,7 +82,7 @@ This is an **unofficial companion project**, not an official Lyrion or Material 
 
 ## Building from source
 
-With JDK 17, Gradle 9.9.1, and Android SDK platform 35/build tools 35.0.0:
+For v0.4.0, use JDK 25, Gradle 9.9.1, and Android SDK platform 35/build tools 35.0.0:
 
 ```sh
 gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug

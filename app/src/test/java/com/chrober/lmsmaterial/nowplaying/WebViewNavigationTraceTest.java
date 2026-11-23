@@ -70,59 +70,6 @@ public final class WebViewNavigationTraceTest {
         assertTrue(result.contains("options_callback_gap_ms=-1"));
     }
 
-    @Test public void reportsEarlyProbeSchedulingAndLastDocumentConditionsWithoutIdentifiers() {
-        WebViewNavigationTrace trace = new WebViewNavigationTrace();
-        trace.navigationStarted(100);
-        trace.earlyMode(true);
-        trace.pageStarted(140, true);
-        trace.pageStarted(200, false);
-        trace.earlyProbeStarted(280);
-        trace.earlyProbeTimedOut();
-        trace.earlyProbeStarted(830);
-        trace.earlyProbeReplied(855, new EarlyNowPlayingProbe.Result(true, false, false, false));
-        trace.earlyProbeStarted(990);
-        trace.earlyProbeReplied(1010, new EarlyNowPlayingProbe.Result(true, true, true, true));
-        trace.earlyProbeStarted(1170);
-        trace.earlyProbeReplied(1190, new EarlyNowPlayingProbe.Result(true, true, true, true));
-        trace.earlyCandidate(1191);
-        trace.readySource(true);
-        String result = trace.report("ready", 1230);
-        assertTrue(result.contains("early_mode=on"));
-        assertTrue(result.contains("early_probes=4"));
-        assertTrue(result.contains("early_replies=3"));
-        assertTrue(result.contains("early_timeouts=1"));
-        assertTrue(result.contains("early_qualified_replies=2"));
-        assertTrue(result.contains("early_first_probe_ms=180"));
-        assertTrue(result.contains("early_last_reply_ms=1090"));
-        assertTrue(result.contains("early_last_app=1"));
-        assertTrue(result.contains("early_last_controls=1"));
-        assertTrue(result.contains("early_last_vue=1"));
-        assertTrue(result.contains("early_last_visible=1"));
-        assertTrue(result.contains("early_candidate_ms=1091"));
-        assertTrue(result.contains("ready_source=early"));
-        assertFalse(result.contains("http"));
-    }
-
-    @Test public void nonQualifyingOrMissingProbeResultIsReportedWithoutInventedReadiness() {
-        WebViewNavigationTrace trace = new WebViewNavigationTrace();
-        trace.navigationStarted(100);
-        trace.earlyMode(true);
-        trace.pageStarted(130, false);
-        trace.earlyProbeStarted(150);
-        trace.earlyProbeReplied(170,
-                new EarlyNowPlayingProbe.Result(true, true, false, true));
-        trace.readySource(false);
-        String result = trace.report("ready", 190);
-        assertTrue(result.contains("early_qualified_replies=0"));
-        assertTrue(result.contains("early_last_vue=0"));
-        assertTrue(result.contains("early_candidate_ms=-1"));
-        assertTrue(result.contains("ready_source=finished"));
-
-        WebViewNavigationTrace missing = new WebViewNavigationTrace();
-        missing.navigationStarted(100);
-        assertTrue(missing.report("ready", 120).contains("early_last_app=-1"));
-    }
-
     @Test public void incompleteAndErrorTraceUsesMissingValueNotInventedDurations() {
         WebViewNavigationTrace trace = new WebViewNavigationTrace();
         trace.navigationStarted(20);

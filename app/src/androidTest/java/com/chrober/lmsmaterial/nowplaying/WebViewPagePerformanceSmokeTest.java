@@ -25,11 +25,10 @@ public final class WebViewPagePerformanceSmokeTest {
         ApplicationProvider.getApplicationContext()
                 .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
                 .edit().clear().commit();
-        CountDownLatch sampled = new CountDownLatch(4);
+        CountDownLatch sampled = new CountDownLatch(3);
         AtomicReference<String> report = new AtomicReference<>();
         AtomicReference<TimedDisplayOptions.Result> timed = new AtomicReference<>();
         AtomicReference<WebViewCommitProbe.Result> commitProbe = new AtomicReference<>();
-        AtomicReference<EarlyNowPlayingProbe.Result> earlyProbe = new AtomicReference<>();
         try (ActivityScenario<MainActivity> scenario =
                      ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
@@ -52,13 +51,6 @@ public final class WebViewPagePerformanceSmokeTest {
                             commitProbe.set(WebViewCommitProbe.parse(raw));
                             sampled.countDown();
                         });
-                        page.evaluateJavascript(
-                                "document.getElementById('app').__vue__={};'mounted';",
-                                ignored -> page.evaluateJavascript(
-                                        EarlyNowPlayingProbe.javascript(), raw -> {
-                                            earlyProbe.set(EarlyNowPlayingProbe.parse(raw));
-                                            sampled.countDown();
-                                        }));
                     }
                 });
                 view.loadDataWithBaseURL("https://example.invalid/",
@@ -82,9 +74,6 @@ public final class WebViewPagePerformanceSmokeTest {
                     commitProbe.get().readyState >= 1);
             assertEquals(1, commitProbe.get().appPresent);
             assertEquals(1, commitProbe.get().controlsPresent);
-            assertNotNull(earlyProbe.get());
-            assertTrue("Mounted, laid-out Now Playing should qualify for early-readiness probe",
-                    earlyProbe.get().qualified());
         }
     }
 }
