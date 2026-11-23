@@ -5,6 +5,7 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">@android:color/system_accent1_200</item>
         <item name="android:colorBackground">@android:color/system_neutral1_900</item>
-        <item name="android:windowBackground">?android:attr/colorBackground</item>
+        <item name="android:windowBackground">@color/startup_window_background</item>
+        <item name="android:windowSplashScreenBackground">@color/startup_window_background</item>
     </style>
 </resources>

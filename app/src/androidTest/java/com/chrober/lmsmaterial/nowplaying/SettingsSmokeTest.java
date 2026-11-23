@@ -1,6 +1,8 @@
 package com.chrober.lmsmaterial.nowplaying;
 
 import android.content.Context;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -47,6 +49,28 @@ public final class SettingsSmokeTest {
             }
         }
         return null;
+    }
+
+    @Test public void activityWindowBackgroundMatchesSavedMaterialTheme() {
+        assertWindowBackground("dark", 0xff212121);
+        assertWindowBackground("light", 0xfffafafa);
+        assertWindowBackground("black", 0xff000000);
+        assertWindowBackground("dark-lyrion", 0xff081f22);
+    }
+
+    private void assertWindowBackground(String theme, int expected) {
+        ApplicationProvider.getApplicationContext()
+                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                .edit().putString("material_theme", theme).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                Drawable background = activity.getWindow().getDecorView().getBackground();
+                assertTrue("Expected a solid window background for " + theme,
+                        background instanceof ColorDrawable);
+                assertEquals("Window background for " + theme,
+                        expected, ((ColorDrawable) background).getColor());
+            });
+        }
     }
 
     @Test public void firstLaunchShowsNativeSettingsAndSetupActions() {

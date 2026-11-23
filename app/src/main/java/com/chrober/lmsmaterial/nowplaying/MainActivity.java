@@ -10,6 +10,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -1439,6 +1440,10 @@ public final class MainActivity extends Activity {
             TEXT = prefs.getInt(KEY_SAMPLED_TEXT, TEXT);
             ACCENT = prefs.getInt(KEY_SAMPLED_ACCENT, ACCENT);
         }
+        // The Android launch preview cannot use preferences, so AppTheme starts
+        // with the default dark background. Once preferences are available,
+        // match the real window surface to the selected Material Skin palette.
+        getWindow().setBackgroundDrawable(new ColorDrawable(BG));
     }
 
     /** Read actual Material Skin computed colors, including custom themes and cover colors. */

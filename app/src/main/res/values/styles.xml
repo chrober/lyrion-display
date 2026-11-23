@@ -3,5 +3,7 @@
     <!-- Pre-Android 12: inherit the platform's light system palette. -->
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <!-- The launch preview is shown before saved Material Skin preferences can be read. -->
+        <item name="android:windowBackground">@color/startup_window_background</item>
     </style>
 </resources>
