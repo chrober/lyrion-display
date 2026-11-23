@@ -6,8 +6,6 @@ A lightweight Android app that turns a Fire TV, Android TV, tablet, or other com
 
 The app uses [Material Skin](https://github.com/CDrummond/lms-material)'s existing `/material/np-only` page. It does **not** reimplement the Now Playing interface, control playback, or require changes to Material Skin.
 
-**Maintained by Christoph O'Bermair.**
-
 ## Why this app?
 
 Material Skin already offers an excellent Now Playing display, but using it on a television typically means opening a browser, entering a URL, and managing a bookmark with a remote control. That is inconvenient for a screen you just want to switch on and use.
