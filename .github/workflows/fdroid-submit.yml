@@ -7,7 +7,7 @@ on:
       release_tag:
         description: 'Already-published immutable release tag (for example v0.4.0)'
         required: true
-        default: 'v0.4.0'
+        default: 'v0.4.2'
         type: string
       mode:
         description: 'Check only, or explicitly submit a GitLab fdroiddata MR'
@@ -17,6 +17,24 @@ on:
         options:
           - dry-run
           - submit
+      submission_kind:
+        description: 'New app inclusion or update of an already included app'
+        required: true
+        default: new-app
+        type: choice
+        options:
+          - new-app
+          - update
+      reviewed_items:
+        description: 'New app submit only: comma-separated IDs of individually reviewed checklist items'
+        required: false
+        default: ''
+        type: string
+      policy_evidence:
+        description: 'New app submit only: Quality point 6 eligibility explanation and public evidence link'
+        required: false
+        default: ''
+        type: string
       confirmation:
         description: 'Submit only: enter SUBMIT v0.4.0 (adapt to the selected tag)'
         required: false
@@ -58,6 +76,11 @@ jobs:
           ref: ${{ inputs.release_tag }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: submission-tools
+          persist-credentials: false
       - name: Prove checkout is the immutable release tag
         id: release
         shell: bash
@@ -77,43 +100,22 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install isolated F-Droid QA tools
-        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'apksigcopier==1.1.1'
+        run: python3 -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.15,<0.17.22' 'apksigcopier==1.1.1'
       - name: Verify source recipe and run submission unit tests
         run: |
           python3 tools/check_fdroid_recipe.py
-          python3 -m unittest discover -s tools/tests -p 'test_fdroid_*.py' -v
+          python3 -m unittest discover -s submission-tools/tools/tests -p 'test_fdroid_*.py' -v
       - name: Generate immutable submission metadata
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         shell: bash
         run: |
-          python3 tools/fdroid_prepare_submission.py \
+          python3 submission-tools/tools/fdroid_prepare_submission.py \
             --tag "$RELEASE_TAG" \
             --checkout . \
             --output "fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml"
           mkdir -p fdroid-submission/config
           cp fdroid/config/categories.yml fdroid-submission/config/categories.yml
-          # Old immutable release tags generate Summary in YAML. Extract it
-          # into fdroiddata's required localized file before any rewrite.
-          # This also works for future tags which already create summary.txt.
-          python3 - <<'PY'
-          from pathlib import Path
-          import yaml
-
-          app = "com.chrober.lmsmaterial.nowplaying"
-          path = Path(f"fdroid-submission/metadata/{app}.yml")
-          localized = path.with_suffix("") / "en-US" / "summary.txt"
-          metadata = yaml.safe_load(path.read_text(encoding="utf-8"))
-          summary = metadata.pop("Summary", None)
-          if summary is not None:
-              if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > 80 or "\n" in summary.strip():
-                  raise SystemExit("Invalid localized F-Droid short summary")
-              localized.parent.mkdir(parents=True, exist_ok=True)
-              localized.write_text(summary.strip() + "\n", encoding="utf-8")
-              path.write_text(yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True, width=100), encoding="utf-8")
-          if not localized.exists() or not localized.read_text(encoding="utf-8").strip():
-              raise SystemExit("Missing English localized summary.txt")
-          PY
           (
             cd fdroid-submission
             # The pinned release tag can predate newer formatting logic.
@@ -127,6 +129,21 @@ jobs:
             fdroid rewritemeta com.chrober.lmsmaterial.nowplaying
             sha256sum -c /tmp/fdroid-metadata-before.sha256
           )
+      - name: Prepare MR description for human review
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          KIND: ${{ inputs.submission_kind }}
+          REVIEWED_ITEMS: ${{ inputs.reviewed_items }}
+          POLICY_EVIDENCE: ${{ inputs.policy_evidence }}
+          MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          flags=()
+          if [[ "$MODE" == submit ]]; then flags+=(--submitting); fi
+          python3 submission-tools/tools/fdroid_mr_template.py \
+            --tag "$RELEASE_TAG" --kind "$KIND" \
+            --reviewed-items "$REVIEWED_ITEMS" --policy-evidence "$POLICY_EVIDENCE" \
+            --output fdroid-submission/mr-description.md "${flags[@]}"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -215,7 +232,7 @@ jobs:
           name: fdroid-manual-submission-reviewed-metadata
           path: |
             fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml
-            fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying/en-US/summary.txt
+            fdroid-submission/mr-description.md
             fdroid-submission/signing-certificate.txt
             fdroid-submission/apk-identity.txt
             fdroid-submission/submission-evidence.txt
@@ -248,7 +265,7 @@ jobs:
           }
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v6
         with:
@@ -265,10 +282,14 @@ jobs:
           GITLAB_FDROID_FORK_PROJECT_ID: ${{ vars.FDROID_GITLAB_FORK_PROJECT_ID }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           CONFIRMATION: ${{ inputs.confirmation }}
+          KIND: ${{ inputs.submission_kind }}
+          REVIEWED_ITEMS: ${{ inputs.reviewed_items }}
+          POLICY_EVIDENCE: ${{ inputs.policy_evidence }}
         shell: bash
         run: |
           python3 tools/fdroid_submit_gitlab.py \
             --tag "$RELEASE_TAG" \
             --metadata reviewed/fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying.yml \
-            --summary reviewed/fdroid-submission/metadata/com.chrober.lmsmaterial.nowplaying/en-US/summary.txt \
+            --kind "$KIND" --reviewed-items "$REVIEWED_ITEMS" --policy-evidence "$POLICY_EVIDENCE" \
+            --description reviewed/fdroid-submission/mr-description.md \
             --confirmation "$CONFIRMATION"

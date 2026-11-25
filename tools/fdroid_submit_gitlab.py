@@ -15,6 +15,9 @@ import re
 from urllib import error, parse, request
 
 from ruamel.yaml import YAML
+from fdroid_mr_template import (
+    UPSTREAM_TEMPLATE_PATH, render_description, require_current_template,
+)
 
 from fdroid_prepare_submission import (
     APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT, canonical_yaml,
@@ -27,23 +30,6 @@ YAML_READER = YAML(typ="safe")
 API = "https://gitlab.com/api/v4"
 UPSTREAM = "fdroid/fdroiddata"
 FILE = "metadata/" + APP_ID + ".yml"
-SUMMARY_FILE = "metadata/" + APP_ID + "/en-US/summary.txt"
-
-
-def localized_summary_action(summary: str, previous: str | None) -> dict | None:
-    """New submission creates summary.txt; updates preserve or amend the existing file."""
-    if not isinstance(summary, str):
-        raise ValueError("Localized F-Droid summary must be text")
-    clean = summary.strip()
-    if not clean or "\n" in clean or len(clean) > 80:
-        raise ValueError("Localized F-Droid summary must be one line of 1–80 characters")
-    desired = clean + "\n"
-    if previous == desired:
-        return None
-    return {"action": "create" if previous is None else "update",
-            "file_path": SUMMARY_FILE, "content": desired}
-
-
 def read_upstream_file(token: str, project_id: int, path: str, branch: str) -> str | None:
     """Read existing fdroiddata content; 404 means a new app/localization only."""
     address = (API + f"/projects/{project_id}/repository/files/" +
@@ -131,13 +117,20 @@ def require_clean_ancestor(upstream_sha: str, fork_sha: str,
 
 
 def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict,
-                     summary: str) -> str:
+                     kind: str, reviewed_items: str, policy_evidence: str,
+                     reviewed_description: str) -> str:
     if not token or fork_id <= 0:
         raise ValueError("Protected GitLab credentials and numeric fork project ID required")
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
         raise ValueError("Invalid release tag")
     if metadata.get("AuthorName") != AUTHOR or metadata.get("CurrentVersion") != tag[1:]:
         raise ValueError("Prepared metadata author or version does not match submission request")
+    expected_description = render_description(tag, kind, reviewed_items, policy_evidence,
+                                              submitting=True)
+    if reviewed_description != expected_description:
+        raise ValueError("Reviewed MR description does not match the verified submission inputs")
+    if "Summary" in metadata or "Description" in metadata:
+        raise ValueError("Listing copy must remain in upstream Fastlane")
     upstream_path = parse.quote(UPSTREAM, safe="")
     upstream = api_call(token, "GET", f"/projects/{upstream_path}")
     fork = api_call(token, "GET", f"/projects/{fork_id}")
@@ -146,6 +139,8 @@ def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict,
     original = fork.get("forked_from_project") or {}
     if original.get("id") != upstream.get("id"):
         raise ValueError("Configured GitLab project is not a direct fork of fdroid/fdroiddata")
+    if fork.get("visibility") != "public":
+        raise ValueError("The fdroiddata fork must be public")
     upstream_branch = upstream.get("default_branch")
     fork_branch = fork.get("default_branch")
     if not upstream_branch or not fork_branch:
@@ -183,45 +178,29 @@ def submit_to_gitlab(token: str, fork_id: int, tag: str, metadata: dict,
         raise ValueError("Submission branch already exists; review the existing branch/MR first")
 
     previous_metadata = read_upstream_file(
-        token, upstream["id"], FILE, upstream_branch)
-    previous_summary = read_upstream_file(
-        token, upstream["id"], SUMMARY_FILE, upstream_branch)
+        token, upstream["id"], FILE, upstream_sha)
     old = YAML_READER.load(previous_metadata) if previous_metadata is not None else None
     operation, resulting = merge_upstream(old, metadata)
-    # The English short description belongs in localized summary.txt, not
-    # the YAML root, otherwise upstream make-summary-translatable.py fails.
-    resulting.pop("Summary", None)
+    if (operation == "create") != (kind == "new-app"):
+        raise ValueError("Selected submission kind does not match official fdroiddata metadata")
+    if operation == "create":
+        require_current_template(read_upstream_file(
+            token, upstream["id"], UPSTREAM_TEMPLATE_PATH, upstream_sha))
     content = canonical_yaml(resulting)
     actions = [{"action": operation, "file_path": FILE, "content": content}]
-    summary_action = localized_summary_action(summary, previous_summary)
-    if summary_action is not None:
-        actions.append(summary_action)
-
     api_call(token, "POST", f"/projects/{fork_id}/repository/commits", {
         "branch": branch,
         "start_branch": fork_branch,
         "commit_message": f"Submit Lyrion Display {tag} to F-Droid",
         "actions": actions,
     })
-    title = f"New App: Lyrion Display ({tag})" if operation == "create" else f"Update Lyrion Display to {tag}"
-    desc = (
-        f"Manually requested F-Droid submission for **Lyrion Display {tag}**.\n\n"
-        f"Public maintainer: {AUTHOR}\n"
-        f"Source and immutable tag: https://github.com/chrober/lyrion-display/tree/{tag}\n"
-        f"Signed binary/checksum: https://github.com/chrober/lyrion-display/releases/tag/{tag}\n\n"
-        "The source was independently rebuilt with F-Droid Trixie/OpenJDK 25, "
-        "the unsigned APK matched byte-for-byte, and the published developer-signed APK "
-        "passed SHA-256, certificate, and apksigcopier validation in the manually "
-        "triggered GitHub QA workflow.\n\n"
-        "AutoUpdateMode remains None and UpdateCheckMode remains Static. "
-        "Please review the build recipe and reproducibility in the official F-Droid infrastructure."
-    )
+    title = "New app: Lyrion Display" if operation == "create" else f"Update Lyrion Display to {tag}"
     mr = api_call(token, "POST", f"/projects/{fork_id}/merge_requests", {
         "source_branch": branch,
         "target_branch": upstream_branch,
         "target_project_id": upstream["id"],
         "title": title,
-        "description": desc,
+        "description": reviewed_description,
         "labels": "New App" if operation == "create" else "",
         "remove_source_branch": False,
     })
@@ -235,7 +214,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
     parser.add_argument("--metadata", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--kind", choices=["new-app", "update"], required=True)
+    parser.add_argument("--reviewed-items", default="")
+    parser.add_argument("--policy-evidence", default="")
+    parser.add_argument("--description", type=Path, required=True)
     parser.add_argument("--confirmation", required=True)
     args = parser.parse_args()
     if args.confirmation != "SUBMIT " + args.tag:
@@ -245,9 +227,10 @@ if __name__ == "__main__":
     try:
         fork_id = int(os.environ.get("GITLAB_FDROID_FORK_PROJECT_ID", "0"))
         document = YAML_READER.load(args.metadata.read_text(encoding="utf-8"))
-        summary = args.summary.read_text(encoding="utf-8")
+        description = args.description.read_text(encoding="utf-8")
         url = submit_to_gitlab(os.environ["GITLAB_FDROID_TOKEN"], fork_id,
-                               args.tag, document, summary)
+                               args.tag, document, args.kind, args.reviewed_items,
+                               args.policy_evidence, description)
         print("F-Droid metadata Merge Request created: " + url)
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:

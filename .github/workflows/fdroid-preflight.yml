@@ -12,6 +12,8 @@ on:
       - .github/workflows/ci.yml
       - tools/fdroid_prepare_submission.py
       - tools/fdroid_submit_gitlab.py
+      - tools/fdroid_mr_template.py
+      - docs/fdroid/Default.md
       - tools/tests/test_fdroid_*.py
       - docs/FDROID_MANUAL_PUBLISHING.md
       - docs/FDROID_PACKAGING.md
@@ -48,7 +50,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install F-Droid metadata tools
-        run: python -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML
+        run: python -m pip install --disable-pip-version-check 'fdroidserver==2.4.5' PyYAML 'ruamel.yaml>=0.15,<0.17.22'
       - name: Check version, source SHA and disabled recipe
         run: python tools/check_fdroid_recipe.py
       - name: Test manually generated submission metadata and no-auto-update safeguards
@@ -60,15 +62,13 @@ jobs:
           from pathlib import Path
           import subprocess
           import yaml
-          from tools.fdroid_prepare_submission import APP_ID, build_metadata, gradle_field
+          from tools.fdroid_prepare_submission import APP_ID, build_metadata, gradle_field, validate_fastlane
           base = yaml.safe_load(Path("fdroid/metadata", APP_ID + ".yml").read_text())
           gradle = Path("app/build.gradle").read_text()
           sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           version = gradle_field(gradle, "versionName")
           metadata = build_metadata(base, f"v{version}", sha, gradle)
-          description = Path("fastlane/metadata/android/en-US")
-          metadata["Summary"] = (description / "short_description.txt").read_text().strip()
-          metadata["Description"] = (description / "full_description.txt").read_text().strip()
+          validate_fastlane(Path("."))
           output = Path("fdroid-submission/metadata", APP_ID + ".yml")
           output.parent.mkdir(parents=True, exist_ok=True)
           output.write_text(yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True))

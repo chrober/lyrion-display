@@ -57,6 +57,9 @@ def build_metadata(base: dict, tag: str, sha: str, gradle_script: str) -> dict:
     obj = copy.deepcopy(base)
     obj["AuthorName"] = AUTHOR
     obj["Name"] = "Lyrion Display"
+    # Listing text and images belong to the upstream Fastlane tree, not fdroiddata.
+    for field in ("Summary", "Description"):
+        obj.pop(field, None)
     # First submission starts at the selected published version, not with the
     # old disabled Java 17 v0.3.0 test recipe.
     obj["Builds"] = [{
@@ -122,6 +125,17 @@ def canonical_yaml(document: dict) -> str:
         return result
 
 
+def validate_fastlane(repo: Path) -> None:
+    listing = repo / "fastlane/metadata/android/en-US"
+    summary = (listing / "short_description.txt").read_text(encoding="utf-8").strip()
+    description = (listing / "full_description.txt").read_text(encoding="utf-8").strip()
+    if not summary or "\n" in summary or len(summary) > 80 or not description:
+        raise ValueError("Missing or invalid upstream English Fastlane listing")
+    for filename in ("1.jpg", "2.jpg"):
+        if not (listing / "images/phoneScreenshots" / filename).is_file():
+            raise ValueError("Missing upstream MR screenshot: " + filename)
+
+
 def prepare(repo: Path, tag: str, output: Path) -> None:
     match = VERSION_RE.fullmatch(tag)
     if match is None:
@@ -135,20 +149,8 @@ def prepare(repo: Path, tag: str, output: Path) -> None:
     gradle = (repo / "app/build.gradle").read_text(encoding="utf-8")
     source = yaml.safe_load((repo / "fdroid/metadata" / (APP_ID + ".yml")).read_text(encoding="utf-8"))
     doc = build_metadata(source, tag, sha, gradle)
-    # Include meaningful listing copy in the standalone fdroiddata submission.
-    # The existing source fastlane texts are the authoritative public content.
-    description_dir = repo / "fastlane/metadata/android/en-US"
-    summary = (description_dir / "short_description.txt").read_text(
-        encoding="utf-8").strip()
-    if not summary or "\n" in summary or len(summary) > 80:
-        raise ValueError("F-Droid localized summary must be one line of 1–80 characters")
-    doc.pop("Summary", None)
-    doc["Description"] = (description_dir / "full_description.txt").read_text(
-        encoding="utf-8").strip()
+    validate_fastlane(repo)
     output.parent.mkdir(parents=True, exist_ok=True)
-    localized = output.with_suffix("") / "en-US" / "summary.txt"
-    localized.parent.mkdir(parents=True, exist_ok=True)
-    localized.write_text(summary + "\n", encoding="utf-8")
     output.write_text(canonical_yaml(doc), encoding="utf-8")
     print(f"Prepared F-Droid metadata for {tag} ({sha}), author: {AUTHOR}; no publication")
 
