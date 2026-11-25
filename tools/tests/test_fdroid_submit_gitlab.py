@@ -2,12 +2,14 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fdroid_submit_gitlab import (
-    YAML_READER, merge_upstream, require_clean_ancestor, localized_summary_action, SUMMARY_FILE,
+    YAML_READER, merge_upstream, require_clean_ancestor, submit_to_gitlab, FILE,
 )  # noqa: E402
 from fdroid_prepare_submission import APP_ID, AUTHOR, BINARY_URL, REPO_URL, SIGNING_CERT
+from fdroid_mr_template import REQUIRED_ITEMS, TEMPLATE_PATH, render_description
 
 
 class GitLabMetadataTests(unittest.TestCase):
@@ -22,21 +24,47 @@ class GitLabMetadataTests(unittest.TestCase):
             "CurrentVersion": "0.4.0", "CurrentVersionCode": 10,
         }
 
-    def test_new_localized_summary_file(self):
-        a = localized_summary_action("Fullscreen display", None)
-        self.assertEqual({"action": "create", "file_path": SUMMARY_FILE,
-                          "content": "Fullscreen display\n"}, a)
+    def mocked_new_submission(self, template_text):
+        reviewed = ",".join(map(str, sorted(REQUIRED_ITEMS)))
+        evidence = "Reviewed active development: https://example.org/history"
+        description = render_description("v0.4.0", "new-app", reviewed, evidence, True)
+        answers = [
+            {"path_with_namespace": "fdroid/fdroiddata", "id": 1, "default_branch": "master"},
+            {"forked_from_project": {"id": 1}, "visibility": "public", "default_branch": "master"},
+            {"commit": {"id": "a" * 40}}, {"commit": {"id": "a" * 40}},
+            None, {}, {"web_url": "https://gitlab.com/example/merge_requests/1"},
+        ]
+        with patch("fdroid_submit_gitlab.api_call", side_effect=answers) as api, \
+             patch("fdroid_submit_gitlab.read_upstream_file", side_effect=[None, template_text]), \
+             patch("fdroid_submit_gitlab.canonical_yaml", return_value="canonical metadata\n"):
+            if template_text != TEMPLATE_PATH.read_text(encoding="utf-8"):
+                with self.assertRaisesRegex(ValueError, "template changed"):
+                    submit_to_gitlab("fake-token", 2, "v0.4.0", self.new,
+                                     "new-app", reviewed, evidence, description)
+                self.assertFalse(any(call.args[1] == "POST" for call in api.call_args_list))
+                return
+            url = submit_to_gitlab("fake-token", 2, "v0.4.0", self.new,
+                                   "new-app", reviewed, evidence, description)
+            self.assertEqual("https://gitlab.com/example/merge_requests/1", url)
+            posts = [call.args[3] for call in api.call_args_list if call.args[1] == "POST"]
+            self.assertEqual(2, len(posts))
+            self.assertEqual([{"action": "create", "file_path": FILE,
+                               "content": "canonical metadata\n"}], posts[0]["actions"])
+            self.assertEqual("New app: Lyrion Display", posts[1]["title"])
+            self.assertEqual(description, posts[1]["description"])
 
-    def test_existing_localized_summary_is_unchanged_or_updated(self):
-        self.assertIsNone(localized_summary_action("Fullscreen display",
-                          "Fullscreen display\n"))
-        self.assertEqual("update", localized_summary_action(
-                         "New caption", "Old caption\n")["action"])
+    def test_new_app_posts_only_yaml_and_official_description(self):
+        self.mocked_new_submission(TEMPLATE_PATH.read_text(encoding="utf-8"))
 
-    def test_invalid_summary_is_rejected(self):
-        for summary in ("", "x\ny", "x" * 81):
+    def test_changed_upstream_template_blocks_all_writes(self):
+        self.mocked_new_submission("changed template")
+
+    def test_unreviewed_description_blocks_api_access(self):
+        with patch("fdroid_submit_gitlab.api_call") as api:
             with self.assertRaises(ValueError):
-                localized_summary_action(summary, None)
+                submit_to_gitlab("fake-token", 2, "v0.4.0", self.new,
+                                 "new-app", "", "", "")
+            api.assert_not_called()
 
     def test_first_app_creates_only_selected_release(self):
         action, doc = merge_upstream(None, self.new)

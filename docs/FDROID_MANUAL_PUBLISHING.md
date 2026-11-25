@@ -10,7 +10,7 @@ No personal email is required in F-Droid metadata.
   `workflow_dispatch`, may create a GitLab fdroiddata merge request.
 - Default mode is **dry-run** (metadata checks, reproducible build, signing
   comparison, report upload); no GitLab access or credentials required.
-- **submit** requires an exact confirmation string, GitHub's
+- **submit** requires an exact confirmation string, an individually reviewed new-app checklist and policy evidence for first inclusion, GitHub's
   `fdroid-submission` protected environment, and a short-lived, narrow-scope
   GitLab token. Configure required reviewers on that environment. Without
   them the environment alone does not enforce human approval.
@@ -44,9 +44,21 @@ These credentials/settings are intentionally **not configured by code**.
    identity, Android version, source recipe, F-Droid metadata lint, independent
    F-Droid Trixie Java 25 rebuild, GitHub APK checksum/certificate and
    `apksigcopier compare --unsigned`.
-4. Review the uploaded metadata + evidence before any GitLab submission.
-5. Only after independent approval: rerun with `mode=submit` and
-   `confirmation=SUBMIT v0.4.0`. Approve the protected environment; the
+4. Review the uploaded metadata, QA evidence and `mr-description.md` before any GitLab submission. The initial submission contains only `metadata/com.chrober.lmsmaterial.nowplaying.yml`; listing text and screenshots stay in upstream Fastlane.
+5. For first inclusion, select `submission_kind=new-app`. Check the official
+   [inclusion policy](https://f-droid.org/docs/Inclusion_Policy) (especially Quality
+   point 6: at least three months of active development unless an exception applies),
+   and only after eligibility is established provide `policy_evidence` with a public
+   evidence link. Do not resubmit solely because the template is corrected.
+   Read each numbered checklist item in the raw Markdown preview; enter the comma-
+   separated IDs you have actually verified in `reviewed_items`. The required
+   IDs are `1,2,3,4,5,6,7,8,9,12,13,14,15,16,17,18,19,21,23,24,25,28`.
+   Conditional items 10, 11, 20, 22 may be left unchecked when not applicable;
+   add any relevant issue links during review. Items 26 and 27 must remain unchecked
+   until official fdroiddata CI and Reports are reviewed. For an already included
+   app, select `update` instead and leave the new-app inputs empty.
+6. Only after independent approval: rerun with `mode=submit`, the reviewed inputs,
+   and `confirmation=SUBMIT <selected tag>`. Approve the protected environment; the
    workflow checks that the configured fork really belongs to fdroid/fdroiddata,
    verifies fork synchronization, commits metadata and opens a Merge Request
    **for review**. It cannot force publishing on f-droid.org.
@@ -55,6 +67,19 @@ For v0.4.0 the generated F-Droid recipe is pinned to the exact released
 commit and Java 25 toolchain. The original **disabled** v0.3.0 Java 17
 draft in this repo is deliberately preserved for historical QA.
 `AutoUpdateMode: None` and `UpdateCheckMode: Static` remain in force.
+
+## Official MR template
+
+The new-app title is exactly `New app: Lyrion Display`. The description uses
+the [official Default.md template](https://gitlab.com/fdroid/fdroiddata/-/blob/master/.gitlab/merge_request_templates/Default.md)
+pinned in [fdroid/Default.md](fdroid/Default.md), with an abstract, motivation,
+tag-pinned screenshots and the full checklist. The submission job checks the
+upstream template at the verified upstream commit before making any write;
+if it changed, update the pinned copy, renderer and tests before retrying.
+Dry runs use the pinned template and do not contact GitLab. The workflow uses
+submission tools pinned to its own dispatch commit even when building older
+immutable release tags. No checkboxes are marked unless explicitly supplied by
+the reviewer; upstream CI/report items cannot be marked by this workflow.
 
 ## Limitations
 

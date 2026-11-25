@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fdroid_prepare_submission import APP_ID, AUTHOR, build_metadata, canonical_yaml  # noqa: E402
+from fdroid_prepare_submission import APP_ID, AUTHOR, build_metadata, canonical_yaml, validate_fastlane  # noqa: E402
 
 
 class SubmissionMetadataTests(unittest.TestCase):
@@ -50,10 +50,15 @@ class SubmissionMetadataTests(unittest.TestCase):
         self.assertIn("AllowedAPKSigningKeys:", text)
         self.assertEqual(text, canonical_yaml(item))
 
-    def test_localized_summary_must_not_be_in_yaml(self):
-        item = build_metadata(self.original, "v0.4.0", "a" * 40, self.gradle)
-        item.pop("Summary", None)
+    def test_listing_copy_is_not_in_submission_metadata(self):
+        source = dict(self.original, Summary="short", Description="long")
+        item = build_metadata(source, "v0.4.0", "a" * 40, self.gradle)
         self.assertNotIn("Summary", item)
+        self.assertNotIn("Description", item)
+        self.assertEqual("short", source["Summary"])
+
+    def test_upstream_english_listing_and_screenshots(self):
+        validate_fastlane(Path(__file__).resolve().parents[2])
 
     def test_bad_tag_version_sha_or_app_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "tag"):
