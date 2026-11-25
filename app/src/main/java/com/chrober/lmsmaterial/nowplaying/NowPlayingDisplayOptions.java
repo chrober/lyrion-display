@@ -5,7 +5,7 @@ package com.chrober.lmsmaterial.nowplaying;
  *
  * Material Skin's /np-only endpoint redirects to the ordinary application and
  * injects np-only.css. The technical-info preference belongs to Material's
- * origin-local settings; progress, queue position and the optional clock
+ * origin-local settings; progress, queue position, the optional clock and player name
  * use scoped overrides of the original Material Skin components.
  *
  * No changes are made to the Lyrion server or any other Material Skin client.
@@ -14,7 +14,8 @@ final class NowPlayingDisplayOptions {
     private NowPlayingDisplayOptions() { }
 
     static String script(int colorUsage, boolean showProgress,
-            boolean showTechnicalInfo, boolean showPlaylistPosition, boolean showClock) {
+            boolean showTechnicalInfo, boolean showPlaylistPosition, boolean showClock,
+            boolean showPlayerName) {
         StringBuilder css = new StringBuilder();
         if (!showProgress) {
             // Hide both elapsed/remaining times and the progress slider in
@@ -39,13 +40,25 @@ final class NowPlayingDisplayOptions {
             }
         }
 
-        if (showClock) {
-            // Material Skin already renders its own localized date/time in
-            // #main-toolbar. np-only.css hides the toolbar and sets its height
-            // to zero; reveal just the existing clock and reserve 48px.
+        if (showClock || showPlayerName) {
+            // np-only.css hides Material's toolbar and sets its height to zero.
+            // Restore its existing clock and/or player title without moving them
+            // or exposing the unrelated toolbar controls.
             css.append(":root{--main-toolbar-height:48px!important;}")
-               .append("#main-toolbar{display:flex!important;}")
-               .append("#main-toolbar>.v-toolbar__content>:not(.toolbar-clock){display:none!important;}");
+               .append("#main-toolbar{display:flex!important;}");
+            if (showPlayerName) {
+                // Vuetify renders the original v-layout as .layout and the
+                // v-toolbar-title inside it as .v-toolbar__title.
+                css.append("#main-toolbar>.v-toolbar__content>:not(.layout)")
+                   .append(showClock ? ":not(.toolbar-clock)" : "")
+                   .append("{display:none!important;}")
+                   .append("#main-toolbar>.v-toolbar__content>.layout>:not(.v-toolbar__title),")
+                   .append("#main-toolbar .v-toolbar__title .maintoolbar-subtitle,")
+                   .append("#main-toolbar .v-toolbar__title .player-status-icon{display:none!important;}")
+                   .append("#main-toolbar .v-toolbar__title{pointer-events:none!important;}");
+            } else {
+                css.append("#main-toolbar>.v-toolbar__content>:not(.toolbar-clock){display:none!important;}");
+            }
         }
 
         // On wide desktop viewports Material Skin renders its clock directly.
