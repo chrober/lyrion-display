@@ -173,6 +173,7 @@ public final class SettingsSmokeTest {
                 assertNull(findText(root, "Save and show Now Playing"));
                 assertNull(findText(root, "Cancel and return to Now Playing"));
                 assertNotNull(findText(root, "Show date and time"));
+                assertNotNull(findText(root, "Show player name"));
                 assertNull(findText(root, "Playlist position shows the current track's place in the playback queue (for example, 7 / 42)."));
                 String version;
                 try {
@@ -224,16 +225,26 @@ public final class SettingsSmokeTest {
                         findText(root, "Show technical track information");
                 android.widget.CheckBox clock = (android.widget.CheckBox)
                         findText(root, "Show date and time");
+                android.widget.CheckBox playerName = (android.widget.CheckBox)
+                        findText(root, "Show player name");
                 assertNotNull(technical);
                 assertNotNull(clock);
+                assertNotNull(playerName);
                 assertFalse(technical.isChecked());
                 assertFalse(clock.isChecked());
+                assertFalse(playerName.isChecked());
+                playerName.performClick();
+                android.content.SharedPreferences independent = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertTrue(independent.getBoolean("show_player_name", false));
+                assertFalse(independent.getBoolean("show_material_clock", false));
                 technical.performClick();
                 clock.performClick();
                 android.content.SharedPreferences prefs = activity.getSharedPreferences(
                         "material_now_playing", Context.MODE_PRIVATE);
                 assertTrue(prefs.getBoolean("show_technical_info", false));
                 assertTrue(prefs.getBoolean("show_material_clock", false));
+                assertTrue(prefs.getBoolean("show_player_name", false));
                 assertEquals("", prefs.getString("server", ""));
             });
             // Saving on change survives a settings recreation without pressing Back.
@@ -244,6 +255,12 @@ public final class SettingsSmokeTest {
                         root, "Show technical track information")).isChecked());
                 assertTrue(((android.widget.CheckBox) findText(
                         root, "Show date and time")).isChecked());
+                android.widget.CheckBox playerName = (android.widget.CheckBox) findText(root, "Show player name");
+                assertTrue(playerName.isChecked());
+                playerName.performClick();
+                assertFalse(activity.getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                        .getBoolean("show_player_name", true));
+                assertTrue(((android.widget.CheckBox) findText(root, "Show date and time")).isChecked());
             });
         }
     }

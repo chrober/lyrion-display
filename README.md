@@ -31,14 +31,14 @@ This small Android wrapper provides a more convenient experience: discover a Lyr
 
 - **Easy setup:** Discover Lyrion servers on the local network or enter a server address manually, then choose an available player.
 - **Instant Now Playing:** Remembers your server and player and opens the fullscreen, read-only Material Skin view on launch.
-- **Configurable Now Playing content:** Independently show or hide playback progress, technical track information (file type, bitrate, etc.), playlist position (current track / queue length), and **Material Skin's existing date/time clock**. Defaults: progress on, technical info off, playlist position on, clock off. These settings affect only Lyrion Display, not other Material Skin clients.
+- **Configurable Now Playing content:** Independently show or hide playback progress, technical track information (file type, bitrate, etc.), playlist position (current track / queue length), **Material Skin's existing date/time clock**, and the selected player name. Defaults: progress on, technical info off, playlist position on, clock off, player name off. These settings affect only Lyrion Display, not other Material Skin clients.
 - **Material Skin appearance:** Select the original **Automatic, Light, Dark, Black, or Lyrion** themes (and server-provided custom themes), plus the original color modes and accent colors. The embedded display and native settings follow the selection.
 - **TV remote and touchscreen support:** Native, D-pad-friendly settings and a discreet gear overlay.
 - **No Save/Cancel workflow:** Valid preferences persist on change; remote Back returns to Now Playing, with safe validation for server/player changes.
 - **Keep screen awake:** Prevents the usual Android display timeout while the Now Playing screen is foregrounded, where supported.
 - **Lightweight:** No extra Lyrion server plugin, Material Skin fork, account, or playback hardware required.
 
-The clock reuses Material Skin's own localized, automatically updated toolbar clock (not a second Android clock). When enabled, Lyrion Display reveals only that clock and reserves the toolbar space; the toolbar's navigation and playback controls remain hidden. Material Skin normally restricts its desktop clock to viewports at least 1300 CSS pixels wide. The app includes a narrowly scoped Vue visibility override for smaller WebView viewports; this may need adaptation if Material Skin changes its component internals.
+The clock reuses Material Skin's own localized, automatically updated toolbar clock (not a second Android clock). The clock and player name independently reveal their original Material Skin toolbar elements without custom positioning. The toolbar space is reserved when either is enabled; navigation and playback controls remain hidden. Material Skin normally restricts its desktop clock to viewports at least 1300 CSS pixels wide. The app includes a narrowly scoped Vue visibility override for smaller WebView viewports; this may need adaptation if Material Skin changes its component internals.
 
 ## Network access and release security
 
