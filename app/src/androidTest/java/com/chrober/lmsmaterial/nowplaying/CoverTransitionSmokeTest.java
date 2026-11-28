@@ -69,11 +69,18 @@ public final class CoverTransitionSmokeTest {
                         + "content='width=device-width, initial-scale=1'>"
                         + "<script>const LMS_MATERIAL_REVISION='" + revision + "';</script>"
                         + "<style>.np-image-landscape{position:relative;width:120px;height:120px}"
-                        + ".np-cover{width:120px;height:120px;object-fit:contain;opacity:1}</style>"
-                        + "</head><body><div id='app'><div id='np-page'><div class='"
+                        + ".np-cover{width:120px;height:120px;object-fit:contain;opacity:1}"
+                        + ".np-bgnd,.np-bgnd>div{position:fixed;top:0;left:0;width:180px;height:180px}"
+                        + ".np-bgnd-cover{background-size:cover;background-color:#222}"
+                        + ".np-landscape-track-info{width:180px;height:40px}</style>"
+                        + "</head><body><div id='app'><div class='np-bgnd'>"
+                        + "<div class='np-bgnd-cover' style='background-image:url(data:image/png;base64,"
+                        + initial + ")'></div></div><div id='np-page'><div class='"
                         + (compatibleDom ? "np-image-landscape" : "future-layout")
                         + "'><img class='np-cover' src='data:image/png;base64," + initial
-                        + "'></div></div></div></body></html>";
+                        + "'></div><div class='np-landscape-track-info'>"
+                        + "<div id='np-track-info'><p class='np-title'>Old track</p>"
+                        + "<p class='np-text-landscape'>Old artist</p></div></div></div></div></body></html>";
                 scenario.onActivity(activity -> {
                     WebView view = new WebView(activity);
                     web.set(view);
@@ -150,7 +157,10 @@ public final class CoverTransitionSmokeTest {
             eval("(function(){var old=document.querySelector('img.np-cover');"
                     + "var next=old.cloneNode(false);"
                     + "next.src='https://cover.example.invalid/slow.png';"
-                    + "old.parentNode.replaceChild(next,old);return true;})()");
+                    + "old.parentNode.replaceChild(next,old);"
+                    + "document.querySelector('#np-track-info .np-title').textContent='New track';"
+                    + "document.querySelector('.np-bgnd>div').style.backgroundImage='url(https://cover.example.invalid/slow.png)';"
+                    + "return true;})()");
             assertTrue("Replacement cover requested", requested.await(4, TimeUnit.SECONDS));
         }
 
@@ -180,13 +190,38 @@ public final class CoverTransitionSmokeTest {
             assertEquals("true", f.eval(OVERLAY));
             assertEquals("\"hidden\"", f.eval(
                     "getComputedStyle(document.querySelector('img.np-cover')).visibility"));
+            assertEquals("\"Old track\"", f.eval(
+                    "document.querySelector('[data-lyrion-visual-overlay=text] .np-title').textContent"));
+            assertEquals("\"hidden\"", f.eval("getComputedStyle(document.getElementById('np-track-info')).visibility"));
+            assertEquals("true", f.eval("!!document.querySelector('[data-lyrion-visual-overlay=background]')"));
+            assertEquals("\"hidden\"", f.eval("getComputedStyle(document.querySelector('.np-bgnd>div')).visibility"));
             f.release.countDown();
             f.await(MASKED, "false");
+            assertEquals("\"visible\"", f.eval("getComputedStyle(document.getElementById('np-track-info')).visibility"));
+            assertEquals("\"New track\"", f.eval("document.querySelector('#np-track-info .np-title').textContent"));
+            assertEquals("false", f.eval("!!document.querySelector('[data-lyrion-visual-overlay=text]')"));
             f.await(OVERLAY, "false");
+            assertEquals("false", f.eval("!!document.querySelector('[data-lyrion-visual-overlay],[data-lyrion-visual-wait]')"));
             f.await(READY, "true");
             assertEquals("\"active\"", f.eval(STATUS));
             assertEquals("\"visible\"", f.eval(
                     "getComputedStyle(document.querySelector('img.np-cover')).visibility"));
+        }
+    }
+
+    @Test public void sameAlbumTextRemainsImmediateAndUpdatesHeldSnapshot() throws Exception {
+        try (Fixture f = new Fixture("6.5.0", true)) {
+            f.install();
+            f.await(READY, "true");
+            f.eval("document.querySelector('#np-track-info .np-title').textContent='Same album'");
+            f.await("document.querySelector('#np-track-info .np-title').textContent", "\"Same album\"");
+            assertEquals("false", f.eval("!!document.querySelector('[data-lyrion-visual-overlay],[data-lyrion-visual-wait]')"));
+            f.replaceCover();
+            f.await(MASKED, "true");
+            assertEquals("\"Same album\"", f.eval(
+                    "document.querySelector('[data-lyrion-visual-overlay=text] .np-title').textContent"));
+            f.release.countDown();
+            f.await(OVERLAY, "false");
         }
     }
 
@@ -200,6 +235,7 @@ public final class CoverTransitionSmokeTest {
             f.await(STATUS, "\"unsupported-dom\"");
             assertEquals("false", f.eval(MASKED));
             assertEquals("false", f.eval(OVERLAY));
+            assertEquals("false", f.eval("!!document.querySelector('[data-lyrion-visual-overlay],[data-lyrion-visual-wait]')"));
             assertEquals("\"visible\"", f.eval(
                     "getComputedStyle(document.querySelector('img.future-cover')).visibility"));
             f.release.countDown();

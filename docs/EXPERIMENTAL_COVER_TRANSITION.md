@@ -1,14 +1,12 @@
-# Experimental foreground cover transition
+# Experimental synchronized cover transition
 
 This is an experimental Lyrion Display 0.4.4 RC, not a public release.
 
-- Allowlisted Material Skin revision: **6.5.0** (source reviewed, physical-device verification pending). Uses the revision constant emitted by Material Skin, not a server-side modification.
-- Exact /np-only mode markers plus expected expanded Now Playing image and parent DOM/CSS contract required.
-- Unknown releases (including DEV/GIT builds), unexpected DOM, unsupported WebView features, decode failures and an eight-second load timeout fall back to Material Skin's own rendering. No persisted setting or network request is introduced.
-- The adapter observes only the native foreground artwork, retains a bounded canvas snapshot of the last completely loaded image, masks the replacing image until load/decode, then fades the old snapshot out over 1500 ms. It does not alter native layout, Vue state, cover URLs, metadata, background image or accent color.
-- Initial load and ordinary playback without artwork changes are not animated. Special dimmed/placeholder/overlay/emblem states use native rendering. Resizing resets the snapshot.
-- Inspect console/logcat for `LyrionCoverTransition` status. The document's `window.__lyrionCoverTransition.status` exposes the compatibility decision without URLs or names.
-- Test on the physical Fire TV Stick with Material Skin 6.5.0, large slow covers, rapid skips, same-album tracks, missing covers, background on/off, and a non-allowlisted version. Verify startup performance, no stale cover, no duplicate image requests, and native fallback.
-- Future revisions require reviewing the exact DOM/CSS contract and testing before expanding the allowlist. Do not silently allow arbitrary versions.
-
-Physical-device feedback confirmed that the initial crossfade was visible but too abrupt. Retain the original implementation and increase only its duration to 1500 ms; foreground/background/metadata synchronization is out of scope for this experiment.
+- Allowlisted revision: **6.5.0**. Exact /np-only markers and expanded Now Playing cover, track-info and background DOM/CSS contracts are required. Unknown versions or structural changes fail closed, removing all temporary layers and visibility markers.
+- The previous foreground is a bounded canvas snapshot. The previous text and background are detached clones of the native visual elements. The background layer reuses the already displayed CSS image URL and computed filter/geometry; normal browser caching applies, no explicit preload request.
+- When Vue updates the cover, metadata and background together, hold the previous visual state until the new foreground is loaded/decoded. Reveal the real new text and both native images in the same animation frame; fade the two previous image layers out together over 1500 ms.
+- The playback position, duration, queue position, technical row and cover-based accent color remain native. No Vue state, text, URL, server preference or persistent client preference is modified.
+- Same-cover title changes remain immediate and refresh the held snapshot. If metadata and cover change in separate Vue updates, text already painted before the cover change cannot be retroactively held; verify on real devices.
+- Background disabled is supported (no background overlay). Missing covers, unsupported WebView features, decode failures, layout changes and an eight-second load timeout return to native rendering; resizing resets the snapshot.
+- Initial load is not animated. Special dimmed/placeholder/overlay/emblem states use native rendering. Rapid skips discard outdated pending work. Test physical Fire TV performance with both layers, particularly the CSS blur, and check no stale text or image remains after fallback.
+- `window.__lyrionCoverTransition.status` exposes the compatibility decision without URLs or names.
