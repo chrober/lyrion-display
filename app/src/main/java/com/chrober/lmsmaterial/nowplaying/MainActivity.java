@@ -1051,6 +1051,8 @@ public final class MainActivity extends Activity {
             });
         }
         sampleWebPalette(view, null);
+        // Optional enhancement: never make startup readiness depend on artwork.
+        CoverTransition.install(this, view);
     }
 
     private void materialProbeFailed(MaterialSkinProbe.Result result) {
