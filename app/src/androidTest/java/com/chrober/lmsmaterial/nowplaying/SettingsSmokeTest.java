@@ -220,6 +220,33 @@ public final class SettingsSmokeTest {
     }
 
 
+    @Test public void settingsGroupAppearanceAndNowPlayingOptionsInLogicalOrder() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                String[] expected = {
+                        "APPEARANCE", "Theme", "Color", "Show background image",
+                        "DISPLAY", "Keep screen awake", "NOW PLAYING CONTENT",
+                        "Show track number", "Show artist context",
+                        "Show technical track information", "Show playback progress",
+                        "Show playlist position", "Show player name", "Show date and time"
+                };
+                View appearance = findText(root, expected[0]);
+                assertNotNull(appearance);
+                ViewGroup content = (ViewGroup) appearance.getParent();
+                int previous = -1;
+                for (String text : expected) {
+                    View item = findText(root, text);
+                    assertNotNull(text, item);
+                    assertSame(text, content, item.getParent());
+                    int position = content.indexOfChild(item);
+                    assertTrue("Unexpected order: " + text, position > previous);
+                    previous = position;
+                }
+            });
+        }
+    }
+
     @Test public void nativeTrackOptionsDefaultAndPersistIndependently() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
