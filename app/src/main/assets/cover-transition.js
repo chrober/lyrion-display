@@ -188,7 +188,8 @@
         for (var i=0;i<records.length;i++) {
             var r=records[i], t=r.target;
             if (r.type==='attributes') {
-                if (t===image || t===parent || (parent && t.parentNode===parent && t.tagName==='IMG')) return true;
+                if (t===image || t===parent || (parent && t.parentNode===parent && t.tagName==='IMG') ||
+                    (r.attributeName==='id' && parent && t.contains(parent))) return true;
             } else if (parent && (t===parent || parent.contains(t) || t.contains(parent))) return true;
         }
         // Parent removal may leave a detached node outside all observed targets.
@@ -209,7 +210,7 @@
             style.textContent='img['+WAIT+']{visibility:hidden!important;}';
             document.head.appendChild(style);
             observer=new MutationObserver(function(records){if(relevant(records))sync(false);});
-            observer.observe(app,{childList:true,subtree:true,attributes:true,attributeFilter:['src','class']});
+            observer.observe(app,{childList:true,subtree:true,attributes:true,attributeFilter:['src','class','id','srcset']});
             window.addEventListener('resize',onResize);
             window.addEventListener('pagehide',onPageHide);
             report('active');
