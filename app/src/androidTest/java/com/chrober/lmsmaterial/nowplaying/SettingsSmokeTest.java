@@ -174,6 +174,9 @@ public final class SettingsSmokeTest {
                 assertNull(findText(root, "Cancel and return to Now Playing"));
                 assertNotNull(findText(root, "Show date and time"));
                 assertNotNull(findText(root, "Show player name"));
+                assertNotNull(findText(root, "Show track number"));
+                assertNotNull(findText(root, "Show background image"));
+                assertNotNull(findText(root, "Show artist context"));
                 assertNull(findText(root, "Playlist position shows the current track's place in the playback queue (for example, 7 / 42)."));
                 String version;
                 try {
@@ -216,6 +219,54 @@ public final class SettingsSmokeTest {
         }
     }
 
+
+    @Test public void nativeTrackOptionsDefaultAndPersistIndependently() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                android.widget.CheckBox track = (android.widget.CheckBox) findText(root, "Show track number");
+                android.widget.CheckBox background = (android.widget.CheckBox) findText(root, "Show background image");
+                android.widget.CheckBox context = (android.widget.CheckBox) findText(root, "Show artist context");
+                assertNotNull(track);
+                assertNotNull(background);
+                assertNotNull(context);
+                assertFalse(track.isChecked());
+                assertTrue(background.isChecked());
+                assertTrue(context.isChecked());
+                track.performClick();
+                assertTrue(background.isChecked());
+                assertTrue(context.isChecked());
+                background.performClick();
+                assertTrue(track.isChecked());
+                assertTrue(context.isChecked());
+                context.performClick();
+                android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertTrue(prefs.getBoolean("show_track_number", false));
+                assertFalse(prefs.getBoolean("show_background_image", true));
+                assertFalse(prefs.getBoolean("show_artist_context", true));
+                assertTrue(prefs.getBoolean("show_queue_position", true));
+            });
+            scenario.recreate();
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                android.widget.CheckBox track = (android.widget.CheckBox) findText(root, "Show track number");
+                android.widget.CheckBox background = (android.widget.CheckBox) findText(root, "Show background image");
+                android.widget.CheckBox context = (android.widget.CheckBox) findText(root, "Show artist context");
+                assertTrue(track.isChecked());
+                assertFalse(background.isChecked());
+                assertFalse(context.isChecked());
+                track.performClick();
+                background.performClick();
+                context.performClick();
+                android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertFalse(prefs.getBoolean("show_track_number", true));
+                assertTrue(prefs.getBoolean("show_background_image", false));
+                assertTrue(prefs.getBoolean("show_artist_context", false));
+            });
+        }
+    }
 
     @Test public void contentOptionsSaveImmediatelyWithoutSavingButton() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
