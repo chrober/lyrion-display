@@ -4,9 +4,10 @@ package com.chrober.lmsmaterial.nowplaying;
  * Per-display customization of Material Skin's existing Now Playing UI.
  *
  * Material Skin's /np-only endpoint redirects to the ordinary application and
- * injects np-only.css. The technical-info preference belongs to Material's
- * origin-local settings; progress, queue position, the optional clock and player name
- * use scoped overrides of the original Material Skin components.
+ * injects np-only.css. Technical info, track number, background image and
+ * artist context use Material's origin-local preferences. Progress, queue
+ * position, the optional clock and player name use scoped overrides of
+ * the original Material Skin components.
  *
  * No changes are made to the Lyrion server or any other Material Skin client.
  */
@@ -15,7 +16,8 @@ final class NowPlayingDisplayOptions {
 
     static String script(int colorUsage, boolean showProgress,
             boolean showTechnicalInfo, boolean showPlaylistPosition, boolean showClock,
-            boolean showPlayerName) {
+            boolean showPlayerName, boolean showTrackNumber, boolean showBackgroundImage,
+            boolean showArtistContext) {
         StringBuilder css = new StringBuilder();
         if (!showProgress) {
             // Hide both elapsed/remaining times and the progress slider in
@@ -91,6 +93,12 @@ final class NowPlayingDisplayOptions {
                 "var techWanted='" + showTechnicalInfo + "';" +
                 "var clockKey='lms-material::nowPlayingClock';" +
                 "var clockWanted='" + showClock + "';" +
+                "var trackNumKey='lms-material::nowPlayingTrackNum';" +
+                "var trackNumWanted='" + showTrackNumber + "';" +
+                "var backdropKey='lms-material::nowPlayingBackdrop';" +
+                "var backdropWanted='" + showBackgroundImage + "';" +
+                "var contextKey='lms-material::nowPlayingContext';" +
+                "var contextWanted='" + showArtistContext + "';" +
                 "var changed=false;" +
                 "if(localStorage.getItem(colorKey)!==expected){" +
                 "localStorage.setItem(colorKey,expected);changed=true;}" +
@@ -98,6 +106,12 @@ final class NowPlayingDisplayOptions {
                 "localStorage.setItem(techKey,techWanted);changed=true;}" +
                 "if(localStorage.getItem(clockKey)!==clockWanted){" +
                 "localStorage.setItem(clockKey,clockWanted);changed=true;}" +
+                "if(localStorage.getItem(trackNumKey)!==trackNumWanted){" +
+                "localStorage.setItem(trackNumKey,trackNumWanted);changed=true;}" +
+                "if(localStorage.getItem(backdropKey)!==backdropWanted){" +
+                "localStorage.setItem(backdropKey,backdropWanted);changed=true;}" +
+                "if(localStorage.getItem(contextKey)!==contextWanted){" +
+                "localStorage.setItem(contextKey,contextWanted);changed=true;}" +
                 "if(changed){location.reload();return 'reload';}" +
                 "var style=document.getElementById('lyrion-display-options');" +
                 "if(!style){style=document.createElement('style');" +

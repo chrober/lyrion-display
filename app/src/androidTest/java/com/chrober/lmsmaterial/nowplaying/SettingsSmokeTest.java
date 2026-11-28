@@ -174,6 +174,9 @@ public final class SettingsSmokeTest {
                 assertNull(findText(root, "Cancel and return to Now Playing"));
                 assertNotNull(findText(root, "Show date and time"));
                 assertNotNull(findText(root, "Show player name"));
+                assertNotNull(findText(root, "Show track number"));
+                assertNotNull(findText(root, "Show background image"));
+                assertNotNull(findText(root, "Show artist context"));
                 assertNull(findText(root, "Playlist position shows the current track's place in the playback queue (for example, 7 / 42)."));
                 String version;
                 try {
@@ -216,6 +219,97 @@ public final class SettingsSmokeTest {
         }
     }
 
+
+    @Test public void perPlayerColorExplainsWhereTheColorIsConfigured() {
+        ApplicationProvider.getApplicationContext()
+                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                .edit().putInt("material_color_usage", MaterialTheme.COLOR_PLAYER).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                assertNotNull(findText(root,
+                        "Uses the color assigned to this player in Material Skin's player settings."));
+                assertNull(findText(root, "Accent follows Material Skin's current player."));
+                assertNull(findText(root, "Accent follows Material Skin's current album cover."));
+                assertNull(findText(root, "Accent color"));
+            });
+        }
+    }
+
+    @Test public void settingsGroupAppearanceAndNowPlayingOptionsInLogicalOrder() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                String[] expected = {
+                        "APPEARANCE", "Theme", "Color", "Show background image",
+                        "DISPLAY", "Keep screen awake", "NOW PLAYING CONTENT",
+                        "Show track number", "Show artist context",
+                        "Show technical track information", "Show playback progress",
+                        "Show playlist position", "Show player name", "Show date and time"
+                };
+                View appearance = findText(root, expected[0]);
+                assertNotNull(appearance);
+                ViewGroup content = (ViewGroup) appearance.getParent();
+                int previous = -1;
+                for (String text : expected) {
+                    View item = findText(root, text);
+                    assertNotNull(text, item);
+                    assertSame(text, content, item.getParent());
+                    int position = content.indexOfChild(item);
+                    assertTrue("Unexpected order: " + text, position > previous);
+                    previous = position;
+                }
+            });
+        }
+    }
+
+    @Test public void nativeTrackOptionsDefaultAndPersistIndependently() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                android.widget.CheckBox track = (android.widget.CheckBox) findText(root, "Show track number");
+                android.widget.CheckBox background = (android.widget.CheckBox) findText(root, "Show background image");
+                android.widget.CheckBox context = (android.widget.CheckBox) findText(root, "Show artist context");
+                assertNotNull(track);
+                assertNotNull(background);
+                assertNotNull(context);
+                assertFalse(track.isChecked());
+                assertTrue(background.isChecked());
+                assertTrue(context.isChecked());
+                track.performClick();
+                assertTrue(background.isChecked());
+                assertTrue(context.isChecked());
+                background.performClick();
+                assertTrue(track.isChecked());
+                assertTrue(context.isChecked());
+                context.performClick();
+                android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertTrue(prefs.getBoolean("show_track_number", false));
+                assertFalse(prefs.getBoolean("show_background_image", true));
+                assertFalse(prefs.getBoolean("show_artist_context", true));
+                assertTrue(prefs.getBoolean("show_queue_position", true));
+            });
+            scenario.recreate();
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                android.widget.CheckBox track = (android.widget.CheckBox) findText(root, "Show track number");
+                android.widget.CheckBox background = (android.widget.CheckBox) findText(root, "Show background image");
+                android.widget.CheckBox context = (android.widget.CheckBox) findText(root, "Show artist context");
+                assertTrue(track.isChecked());
+                assertFalse(background.isChecked());
+                assertFalse(context.isChecked());
+                track.performClick();
+                background.performClick();
+                context.performClick();
+                android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                        "material_now_playing", Context.MODE_PRIVATE);
+                assertFalse(prefs.getBoolean("show_track_number", true));
+                assertTrue(prefs.getBoolean("show_background_image", false));
+                assertTrue(prefs.getBoolean("show_artist_context", false));
+            });
+        }
+    }
 
     @Test public void contentOptionsSaveImmediatelyWithoutSavingButton() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {

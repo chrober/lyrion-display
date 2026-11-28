@@ -67,6 +67,9 @@ public final class MainActivity extends Activity {
     private static final String KEY_SHOW_QUEUE_POSITION = "show_queue_position";
     private static final String KEY_SHOW_CLOCK = "show_material_clock";
     private static final String KEY_SHOW_PLAYER_NAME = "show_player_name";
+    private static final String KEY_SHOW_TRACK_NUMBER = "show_track_number";
+    private static final String KEY_SHOW_BACKGROUND_IMAGE = "show_background_image";
+    private static final String KEY_SHOW_ARTIST_CONTEXT = "show_artist_context";
     private static final String KEY_THEME = "material_theme";
     private static final String KEY_COLOR = "material_color";
     private static final String KEY_COLOR_USAGE = "material_color_usage";
@@ -347,10 +350,14 @@ public final class MainActivity extends Activity {
             bindColorSpinner();
         } else {
             colorSpinner = null;
-            add(content, label("Accent follows Material Skin's current "
-                    + (prefs.getInt(KEY_COLOR_USAGE, MaterialTheme.COLOR_COVER) == MaterialTheme.COLOR_PLAYER
-                        ? "player." : "album cover."), 14, SUBTEXT, false), 0, 8);
+            add(content, label(
+                    prefs.getInt(KEY_COLOR_USAGE, MaterialTheme.COLOR_COVER) == MaterialTheme.COLOR_PLAYER
+                        ? "Uses the color assigned to this player in Material Skin's player settings."
+                        : "Accent follows Material Skin's current album cover.",
+                    14, SUBTEXT, false), 0, 8);
         }
+        add(content, displayCheckbox("Show background image",
+                prefs.getBoolean(KEY_SHOW_BACKGROUND_IMAGE, true), KEY_SHOW_BACKGROUND_IMAGE), 0, 18);
         content.addView(label("DISPLAY", 15, ACCENT, true));
         awakeCheckbox = new CheckBox(this);
         awakeCheckbox.setText("Keep screen awake");
@@ -370,21 +377,25 @@ public final class MainActivity extends Activity {
                 14, SUBTEXT, false), 0, 18);
 
         content.addView(label("NOW PLAYING CONTENT", 15, ACCENT, true));
-        progressCheckbox = displayCheckbox("Show playback progress",
-                prefs.getBoolean(KEY_SHOW_PROGRESS, true), KEY_SHOW_PROGRESS);
-        add(content, progressCheckbox, 6, 2);
+        add(content, displayCheckbox("Show track number",
+                prefs.getBoolean(KEY_SHOW_TRACK_NUMBER, false), KEY_SHOW_TRACK_NUMBER), 6, 2);
+        add(content, displayCheckbox("Show artist context",
+                prefs.getBoolean(KEY_SHOW_ARTIST_CONTEXT, true), KEY_SHOW_ARTIST_CONTEXT), 0, 2);
         technicalCheckbox = displayCheckbox("Show technical track information",
                 prefs.getBoolean(KEY_SHOW_TECH_INFO, false), KEY_SHOW_TECH_INFO);
         add(content, technicalCheckbox, 0, 2);
+        progressCheckbox = displayCheckbox("Show playback progress",
+                prefs.getBoolean(KEY_SHOW_PROGRESS, true), KEY_SHOW_PROGRESS);
+        add(content, progressCheckbox, 0, 2);
         queuePositionCheckbox = displayCheckbox("Show playlist position",
                 prefs.getBoolean(KEY_SHOW_QUEUE_POSITION, true), KEY_SHOW_QUEUE_POSITION);
         add(content, queuePositionCheckbox, 0, 2);
-        clockCheckbox = displayCheckbox("Show date and time",
-                prefs.getBoolean(KEY_SHOW_CLOCK, false), KEY_SHOW_CLOCK);
-        add(content, clockCheckbox, 0, 2);
         playerNameCheckbox = displayCheckbox("Show player name",
                 prefs.getBoolean(KEY_SHOW_PLAYER_NAME, false), KEY_SHOW_PLAYER_NAME);
-        add(content, playerNameCheckbox, 0, 12);
+        add(content, playerNameCheckbox, 0, 2);
+        clockCheckbox = displayCheckbox("Show date and time",
+                prefs.getBoolean(KEY_SHOW_CLOCK, false), KEY_SHOW_CLOCK);
+        add(content, clockCheckbox, 0, 12);
         add(content, label(configured()
                 ? "Changes are saved automatically. Press Back to return to Now Playing."
                 : "Options save automatically. Select a server and player, then start Now Playing.",
@@ -939,7 +950,10 @@ public final class MainActivity extends Activity {
                 prefs.getBoolean(KEY_SHOW_TECH_INFO, false),
                 prefs.getBoolean(KEY_SHOW_QUEUE_POSITION, true),
                 prefs.getBoolean(KEY_SHOW_CLOCK, false),
-                prefs.getBoolean(KEY_SHOW_PLAYER_NAME, false));
+                prefs.getBoolean(KEY_SHOW_PLAYER_NAME, false),
+                prefs.getBoolean(KEY_SHOW_TRACK_NUMBER, false),
+                prefs.getBoolean(KEY_SHOW_BACKGROUND_IMAGE, true),
+                prefs.getBoolean(KEY_SHOW_ARTIST_CONTEXT, true));
     }
 
     /**
