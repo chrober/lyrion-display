@@ -8,10 +8,10 @@
 (function () {
     'use strict';
     if (window.__lyrionCoverTransition) return window.__lyrionCoverTransition.status;
-    var state = window.__lyrionCoverTransition = {status: 'checking', ready: false};
+    var state = window.__lyrionCoverTransition = {status: 'checking', ready: false, phase: 'idle', completedFades: 0, timedOutFades: 0};
     var observer, retryTimer, loadTimer, fadeTimer, frame, style, waitingImage, listeningImage;
     var app, parent, image, source, previous, overlay;
-    var serial = 0, stopped = false;
+    var serial = 0, stopped = false, fadeEnd;
     var WAIT = 'data-lyrion-cover-wait', OVERLAY = 'data-lyrion-cover-overlay';
     var duration = 400, loadLimit = 8000;
 
@@ -40,8 +40,11 @@
         frame = undefined;
         if (waitingImage) waitingImage.removeAttribute(WAIT);
         waitingImage = null;
+        if (overlay && fadeEnd) overlay.removeEventListener('transitionend', fadeEnd);
+        fadeEnd = null;
         if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
         overlay = null;
+        state.phase = 'idle';
     }
     function disable(reason) {
         if (stopped) return;
@@ -122,6 +125,7 @@
         parent.appendChild(overlay);
         waitingImage=img;
         img.setAttribute(WAIT,'');
+        state.phase = 'waiting';
     }
     function finish(img,url,token) {
         if (stopped || token!==serial) return;
@@ -137,13 +141,45 @@
             waitingImage=null;
             if (!overlay) return;
             var old=overlay;
-            // Keep Material's real decoded image visible underneath.
-            old.style.transition='opacity '+duration+'ms ease-in-out';
+            // Establish the opaque starting state before starting the fade.
+            // Separate rendering frames even for an already-cached image.
+            // The watchdog starts only when the transition is actually requested.
+            state.phase='preparing';
+            old.style.transition='none';
+            old.style.opacity='1';
+            void old.offsetWidth;
             frame=requestAnimationFrame(function(){
-                frame=undefined;
-                if (overlay===old) old.style.opacity='0';
+                if (overlay!==old || stopped) { frame=undefined; return; }
+                frame=requestAnimationFrame(function(){
+                    frame=undefined;
+                    if (overlay!==old || stopped) return;
+                    old.style.transition='opacity '+duration+'ms ease-in-out';
+                    fadeEnd=function(e) {
+                        if (overlay!==old || e.target!==old || e.propertyName!=='opacity') return;
+                        ++state.completedFades;
+                        removeOverlay();
+                    };
+                    old.addEventListener('transitionend',fadeEnd);
+                    // Commit the starting style before changing the target.
+                    void old.offsetWidth;
+                    clearTimeout(fadeTimer);
+                    state.phase='fading';
+                    old.style.opacity='0';
+                    fadeTimer=setTimeout(function(){
+                        if (overlay===old) {
+                            ++state.timedOutFades;
+                            removeOverlay();
+                        }
+                    },duration+1000);
+                });
             });
-            fadeTimer=setTimeout(function(){ if (overlay===old) removeOverlay(); },duration+80);
+            // Separate safety bound if rendering frames never arrive.
+            fadeTimer=setTimeout(function(){
+                if (overlay===old && state.phase==='preparing') {
+                    ++state.timedOutFades;
+                    removeOverlay();
+                }
+            },2000);
         } catch(e) { disable('render-fallback'); }
     }
     function onLoad() {
@@ -175,7 +211,7 @@
             if (!force && next===image && url===source) return;
             cancelPending(); removeOverlay();
             if (force || (previous && !sameGeometry(previous.geometry,geometry(next)))) previous=null;
-            image=next; parent=p; source=url;
+            image=next; parent=p; source=url; state.ready=false;
             if (previous && previous.url!==url) showPrevious(next);
             listeningImage=next;
             next.addEventListener('load',onLoad);

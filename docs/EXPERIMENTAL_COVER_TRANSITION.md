@@ -10,3 +10,5 @@ This is an experimental Lyrion Display 0.4.4 RC, not a public release.
 - Inspect console/logcat for `LyrionCoverTransition` status. The document's `window.__lyrionCoverTransition.status` exposes the compatibility decision without URLs or names.
 - Test on the physical Fire TV Stick with Material Skin 6.5.0, large slow covers, rapid skips, same-album tracks, missing covers, background on/off, and a non-allowlisted version. Verify startup performance, no stale cover, no duplicate image requests, and native fallback.
 - Future revisions require reviewing the exact DOM/CSS contract and testing before expanding the allowlist. Do not silently allow arbitrary versions.
+
+The second experiment establishes an opaque frame before starting the opacity transition, removes the overlay on `transitionend`, and uses separate watchdogs only for missing frames/events. Inspect `window.__lyrionCoverTransition.phase`, `completedFades` and `timedOutFades` to distinguish a completed transition from fallback cleanup. Metadata and background are still deliberately native and may change before the foreground cover.
