@@ -350,9 +350,11 @@ public final class MainActivity extends Activity {
             bindColorSpinner();
         } else {
             colorSpinner = null;
-            add(content, label("Accent follows Material Skin's current "
-                    + (prefs.getInt(KEY_COLOR_USAGE, MaterialTheme.COLOR_COVER) == MaterialTheme.COLOR_PLAYER
-                        ? "player." : "album cover."), 14, SUBTEXT, false), 0, 8);
+            add(content, label(
+                    prefs.getInt(KEY_COLOR_USAGE, MaterialTheme.COLOR_COVER) == MaterialTheme.COLOR_PLAYER
+                        ? "Uses the color assigned to this player in Material Skin's player settings."
+                        : "Accent follows Material Skin's current album cover.",
+                    14, SUBTEXT, false), 0, 8);
         }
         add(content, displayCheckbox("Show background image",
                 prefs.getBoolean(KEY_SHOW_BACKGROUND_IMAGE, true), KEY_SHOW_BACKGROUND_IMAGE), 0, 18);

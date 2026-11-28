@@ -220,6 +220,22 @@ public final class SettingsSmokeTest {
     }
 
 
+    @Test public void perPlayerColorExplainsWhereTheColorIsConfigured() {
+        ApplicationProvider.getApplicationContext()
+                .getSharedPreferences("material_now_playing", Context.MODE_PRIVATE)
+                .edit().putInt("material_color_usage", MaterialTheme.COLOR_PLAYER).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                View root = activity.findViewById(android.R.id.content);
+                assertNotNull(findText(root,
+                        "Uses the color assigned to this player in Material Skin's player settings."));
+                assertNull(findText(root, "Accent follows Material Skin's current player."));
+                assertNull(findText(root, "Accent follows Material Skin's current album cover."));
+                assertNull(findText(root, "Accent color"));
+            });
+        }
+    }
+
     @Test public void settingsGroupAppearanceAndNowPlayingOptionsInLogicalOrder() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
